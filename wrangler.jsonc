@@ -1,0 +1,10 @@
+{
+  // Wrangler configuration for Cloudflare Workers
+  // This file is included for compatibility date reference
+  // The @dotdo/collections package is a library, not a deployed worker
+
+  "$schema": "https://json.schemastore.org/wrangler",
+  "name": "collections",
+  "compatibility_date": "2026-01-25",
+  "compatibility_flags": ["nodejs_compat"]
+}

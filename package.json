@@ -1,0 +1,73 @@
+{
+  "name": "@dotdo/collections",
+  "version": "0.1.0",
+  "description": "MongoDB-style document store on Durable Object SQLite",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "import": "./dist/memory.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "collections",
+    "mongodb",
+    "document-store",
+    "durable-objects",
+    "cloudflare",
+    "workers",
+    "sqlite",
+    "nosql"
+  ],
+  "author": {
+    "name": "Platform.do",
+    "email": "npm@platform.do",
+    "url": "https://platform.do"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dot-do/collections.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dot-do/collections/issues"
+  },
+  "homepage": "https://collections.do",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250121.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/workers-types": {
+      "optional": true
+    }
+  }
+}
