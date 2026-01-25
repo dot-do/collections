@@ -5,18 +5,6 @@
  */
 
 import type { Filter } from './types'
-import {
-  isEqOperator,
-  isNeOperator,
-  isGtOperator,
-  isGteOperator,
-  isLtOperator,
-  isLteOperator,
-  isInOperator,
-  isNinOperator,
-  isExistsOperator,
-  isRegexOperator,
-} from './types'
 
 // ============================================================================
 // Field Name Validation
@@ -35,7 +23,9 @@ const VALID_FIELD_PATTERN = /^[\w.]+$/
  */
 export function validateFieldName(field: string): string {
   if (!VALID_FIELD_PATTERN.test(field)) {
-    throw new Error(`Invalid field name: "${field}". Field names must only contain alphanumeric characters, underscores, and dots.`)
+    throw new Error(
+      `Invalid field name: "${field}". Field names must only contain alphanumeric characters, underscores, and dots.`
+    )
   }
   return field
 }
@@ -95,44 +85,45 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
     } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       // Validate field name to prevent SQL injection
       const safeField = validateFieldName(key)
+      const op = value as Record<string, unknown>
 
-      // Check for filter operators using type guards
-      if (isEqOperator(value)) {
-        params.push(toSqlValue(value.$eq))
+      // Check for filter operators
+      if ('$eq' in op) {
+        params.push(toSqlValue(op['$eq']))
         conditions.push(`json_extract(data, '$.${safeField}') = ?`)
-      } else if (isNeOperator(value)) {
-        params.push(toSqlValue(value.$ne))
+      } else if ('$ne' in op) {
+        params.push(toSqlValue(op['$ne']))
         conditions.push(`json_extract(data, '$.${safeField}') != ?`)
-      } else if (isGtOperator(value)) {
-        params.push(value.$gt)
+      } else if ('$gt' in op) {
+        params.push(op['$gt'])
         conditions.push(`CAST(json_extract(data, '$.${safeField}') AS REAL) > ?`)
-      } else if (isGteOperator(value)) {
-        params.push(value.$gte)
+      } else if ('$gte' in op) {
+        params.push(op['$gte'])
         conditions.push(`CAST(json_extract(data, '$.${safeField}') AS REAL) >= ?`)
-      } else if (isLtOperator(value)) {
-        params.push(value.$lt)
+      } else if ('$lt' in op) {
+        params.push(op['$lt'])
         conditions.push(`CAST(json_extract(data, '$.${safeField}') AS REAL) < ?`)
-      } else if (isLteOperator(value)) {
-        params.push(value.$lte)
+      } else if ('$lte' in op) {
+        params.push(op['$lte'])
         conditions.push(`CAST(json_extract(data, '$.${safeField}') AS REAL) <= ?`)
-      } else if (isInOperator(value)) {
-        const inValues = value.$in.map((v) => toSqlValue(v))
+      } else if ('$in' in op && Array.isArray(op['$in'])) {
+        const inValues = (op['$in'] as unknown[]).map((v) => toSqlValue(v))
         const placeholders = inValues.map(() => '?').join(', ')
         params.push(...inValues)
         conditions.push(`json_extract(data, '$.${safeField}') IN (${placeholders})`)
-      } else if (isNinOperator(value)) {
-        const ninValues = value.$nin.map((v) => toSqlValue(v))
+      } else if ('$nin' in op && Array.isArray(op['$nin'])) {
+        const ninValues = (op['$nin'] as unknown[]).map((v) => toSqlValue(v))
         const placeholders = ninValues.map(() => '?').join(', ')
         params.push(...ninValues)
         conditions.push(`json_extract(data, '$.${safeField}') NOT IN (${placeholders})`)
-      } else if (isExistsOperator(value)) {
-        if (value.$exists) {
+      } else if ('$exists' in op) {
+        if (op['$exists']) {
           conditions.push(`json_extract(data, '$.${safeField}') IS NOT NULL`)
         } else {
           conditions.push(`json_extract(data, '$.${safeField}') IS NULL`)
         }
-      } else if (isRegexOperator(value)) {
-        params.push(value.$regex)
+      } else if ('$regex' in op) {
+        params.push(op['$regex'])
         conditions.push(`json_extract(data, '$.${safeField}') REGEXP ?`)
       } else {
         // Plain object value - exact match
