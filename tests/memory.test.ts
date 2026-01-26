@@ -144,17 +144,17 @@ describe('MemoryCollection', () => {
     })
 
     it('should filter by nested object path', () => {
-      const results = collection.find({ 'assignee.name': 'Alice' } as any)
+      const results = collection.query({ 'assignee.name': 'Alice' } as any)
       expect(results.length).toBe(2)
     })
 
     it('should filter by nested object path with operator', () => {
-      const results = collection.find({ 'assignee.email': { $regex: '@example.com' } } as any)
+      const results = collection.query({ 'assignee.email': { $regex: '@example.com' } } as any)
       expect(results.length).toBe(3)
     })
 
     it('should combine nested and top-level filters', () => {
-      const results = collection.find({
+      const results = collection.query({
         $and: [{ 'assignee.name': 'Alice' } as any, { completed: false }],
       })
       expect(results.length).toBe(2)
@@ -170,7 +170,7 @@ describe('MemoryCollection', () => {
       collection.put('t3', { title: 'C', completed: false, priority: 3, tags: ['c'] })
 
       // Sort by tags (some undefined)
-      const results = collection.find({}, { sort: 'tags' })
+      const results = collection.query({}, { sort: 'tags' })
       // Documents with undefined tags should be sorted to the end
       expect(results[results.length - 1].title).toBe('B')
     })
@@ -182,7 +182,7 @@ describe('MemoryCollection', () => {
       collection.put('t2', { name: 'B', value: null })
       collection.put('t3', { name: 'C', value: 3 })
 
-      const results = collection.find({}, { sort: 'value' })
+      const results = collection.query({}, { sort: 'value' })
       // Null should be sorted to the end
       expect(results[results.length - 1]['name']).toBe('B')
     })
@@ -204,11 +204,11 @@ describe('MemoryCollection', () => {
       expect(collection.count()).toBe(1000)
 
       // Filter should work efficiently
-      const completed = collection.find({ completed: true })
+      const completed = collection.query({ completed: true })
       expect(completed.length).toBe(500)
 
       // Range filter
-      const highPriority = collection.find({ priority: { $gte: 3 } })
+      const highPriority = collection.query({ priority: { $gte: 3 } })
       expect(highPriority.length).toBe(400) // priority 3 and 4
     })
   })
@@ -252,7 +252,7 @@ describe('Filter edge cases', () => {
       collection.put('t1', { name: 'test' })
 
       // Invalid regex pattern - should not match
-      const results = collection.find({ name: { $regex: '[invalid(' } })
+      const results = collection.query({ name: { $regex: '[invalid(' } })
       expect(results.length).toBe(0)
     })
   })
@@ -263,7 +263,7 @@ describe('Filter edge cases', () => {
 
       collection.put('t1', { value: 'string' })
 
-      const results = collection.find({ value: { $gt: 5 } })
+      const results = collection.query({ value: { $gt: 5 } })
       expect(results.length).toBe(0)
     })
 
@@ -272,7 +272,7 @@ describe('Filter edge cases', () => {
 
       collection.put('t1', { other: 'value' })
 
-      const results = collection.find({ value: { $lt: 5 } })
+      const results = collection.query({ value: { $lt: 5 } })
       expect(results.length).toBe(0)
     })
   })
@@ -283,7 +283,7 @@ describe('Filter edge cases', () => {
 
       collection.put('t1', { status: 'active' })
 
-      const results = collection.find({ status: { $in: [] } })
+      const results = collection.query({ status: { $in: [] } })
       expect(results.length).toBe(0)
     })
   })
@@ -295,7 +295,7 @@ describe('Filter edge cases', () => {
       collection.put('t1', { status: 'active' })
       collection.put('t2', { status: 'inactive' })
 
-      const results = collection.find({ status: { $nin: [] } })
+      const results = collection.query({ status: { $nin: [] } })
       expect(results.length).toBe(2)
     })
   })
@@ -314,7 +314,7 @@ describe('Security: Empty $in/$nin array handling', () => {
       collection.put('p2', { category: 'furniture', name: 'Chair' })
       collection.put('p3', { category: 'electronics', name: 'Laptop' })
 
-      const results = collection.find({ category: { $in: [] } })
+      const results = collection.query({ category: { $in: [] } })
       expect(results.length).toBe(0)
     })
 
@@ -324,7 +324,7 @@ describe('Security: Empty $in/$nin array handling', () => {
       collection.put('p1', { category: 'electronics', active: true })
       collection.put('p2', { category: 'furniture', active: true })
 
-      const results = collection.find({
+      const results = collection.query({
         $and: [{ active: true }, { category: { $in: [] } }],
       })
       expect(results.length).toBe(0)
@@ -339,7 +339,7 @@ describe('Security: Empty $in/$nin array handling', () => {
       collection.put('p2', { category: 'furniture', name: 'Chair' })
       collection.put('p3', { category: 'electronics', name: 'Laptop' })
 
-      const results = collection.find({ category: { $nin: [] } })
+      const results = collection.query({ category: { $nin: [] } })
       expect(results.length).toBe(3)
     })
 
@@ -350,7 +350,7 @@ describe('Security: Empty $in/$nin array handling', () => {
       collection.put('p2', { category: 'furniture', active: false })
       collection.put('p3', { category: 'clothing', active: true })
 
-      const results = collection.find({
+      const results = collection.query({
         $and: [{ active: true }, { category: { $nin: [] } }],
       })
       expect(results.length).toBe(2)
@@ -369,7 +369,7 @@ describe('Security: ReDoS protection', () => {
       // Create a pattern longer than 1000 characters
       const longPattern = 'a'.repeat(1001)
 
-      const results = collection.find({ text: { $regex: longPattern } })
+      const results = collection.query({ text: { $regex: longPattern } })
       // Should return no matches (pattern rejected)
       expect(results.length).toBe(0)
     })
@@ -385,7 +385,7 @@ describe('Security: ReDoS protection', () => {
       // Create a pattern exactly 1000 characters (at the limit)
       const limitPattern = 'a'.repeat(1000)
 
-      const results = collection.find({ text: { $regex: limitPattern } })
+      const results = collection.query({ text: { $regex: limitPattern } })
       // Should work and find the matching document
       expect(results.length).toBe(1)
     })
@@ -398,7 +398,7 @@ describe('Security: ReDoS protection', () => {
       collection.put('t1', { text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' })
 
       // Classic ReDoS pattern: (a+)+
-      const results = collection.find({ text: { $regex: '(a+)+' } })
+      const results = collection.query({ text: { $regex: '(a+)+' } })
       expect(results.length).toBe(0)
     })
 
@@ -407,7 +407,7 @@ describe('Security: ReDoS protection', () => {
 
       collection.put('t1', { text: 'aaaaaaaaaa' })
 
-      const results = collection.find({ text: { $regex: '(a*)+' } })
+      const results = collection.query({ text: { $regex: '(a*)+' } })
       expect(results.length).toBe(0)
     })
 
@@ -416,7 +416,7 @@ describe('Security: ReDoS protection', () => {
 
       collection.put('t1', { text: 'aaaaaaaaaa' })
 
-      const results = collection.find({ text: { $regex: '(a+)*' } })
+      const results = collection.query({ text: { $regex: '(a+)*' } })
       expect(results.length).toBe(0)
     })
 
@@ -426,7 +426,7 @@ describe('Security: ReDoS protection', () => {
       collection.put('t1', { text: 'test' })
 
       // Pattern with nested groups: ((a+)b)+
-      const results = collection.find({ text: { $regex: '((a+)b)+' } })
+      const results = collection.query({ text: { $regex: '((a+)b)+' } })
       expect(results.length).toBe(0)
     })
 
@@ -437,7 +437,7 @@ describe('Security: ReDoS protection', () => {
       collection.put('t2', { text: 'goodbye world' })
 
       // Safe pattern: simple quantifier
-      const results = collection.find({ text: { $regex: 'hello.*world' } })
+      const results = collection.query({ text: { $regex: 'hello.*world' } })
       expect(results.length).toBe(1)
     })
 
@@ -448,7 +448,7 @@ describe('Security: ReDoS protection', () => {
       collection.put('t2', { email: 'invalid' })
 
       // Safe pattern: group without nested quantifiers applied to it
-      const results = collection.find({ email: { $regex: '@[a-z]+\\.com$' } })
+      const results = collection.query({ email: { $regex: '@[a-z]+\\.com$' } })
       expect(results.length).toBe(1)
     })
   })
@@ -462,7 +462,7 @@ describe('Security: ReDoS protection', () => {
 
       const startTime = Date.now()
       // This pattern would hang without protection: (a+)+$
-      const results = collection.find({ text: { $regex: '(a+)+$' } })
+      const results = collection.query({ text: { $regex: '(a+)+$' } })
       const elapsed = Date.now() - startTime
 
       // Should complete quickly (rejected pattern or fast execution)
@@ -477,7 +477,7 @@ describe('Security: ReDoS protection', () => {
 
       const startTime = Date.now()
       // Pattern that could cause polynomial time: (a*)*b
-      const results = collection.find({ text: { $regex: '(a*)*b' } })
+      const results = collection.query({ text: { $regex: '(a*)*b' } })
       const elapsed = Date.now() - startTime
 
       expect(elapsed).toBeLessThan(1000)

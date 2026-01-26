@@ -4,7 +4,7 @@
  * Compile MongoDB-style filters to SQL WHERE clauses
  */
 
-import type { Filter } from './types'
+import type { Filter } from '@dotdo/types/database'
 
 // ============================================================================
 // Field Name Validation
@@ -82,6 +82,12 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
       if (subConditions.length > 0) {
         conditions.push(`(${subConditions.join(' OR ')})`)
       }
+    } else if (key === '$not' && value !== null && typeof value === 'object') {
+      // $not operator: negate the nested filter
+      const subCondition = compileFilter(value as Filter<T>, params)
+      if (subCondition !== '1=1') {
+        conditions.push(`NOT (${subCondition})`)
+      }
     } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       // Validate field name to prevent SQL injection
       const safeField = validateFieldName(key)
@@ -135,6 +141,10 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
       } else if ('$regex' in op) {
         params.push(op['$regex'])
         conditions.push(`json_extract(data, '$.${safeField}') REGEXP ?`)
+      } else if ('$contains' in op) {
+        // $contains: check if string contains substring or array contains value
+        params.push(`%${op['$contains']}%`)
+        conditions.push(`json_extract(data, '$.${safeField}') LIKE ?`)
       } else {
         // Plain object value - exact match
         params.push(JSON.stringify(value))

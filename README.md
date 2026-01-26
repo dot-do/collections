@@ -9,7 +9,7 @@ MongoDB-style document store on Durable Object SQLite.
 - MongoDB-style filter queries ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin, $exists, $regex, $and, $or)
 - Query options: limit, offset, sort
 - Type-safe with full TypeScript support
-- SQL injection protection for field names
+- Safe field name validation
 - In-memory implementation for testing
 
 ## Installation
@@ -206,19 +206,19 @@ if (isFilterOperator(value)) {
 ```typescript
 import { validateFieldName, escapeSql } from '@dotdo/collections'
 
-// Validate field names (throws on invalid)
+// Validate field names (throws on invalid characters)
 validateFieldName('user.name')  // OK
-validateFieldName("'; DROP TABLE")  // Throws!
+validateFieldName('invalid-field!')  // Throws!
 
-// Escape SQL values
+// Escape special characters in values
 escapeSql("O'Brien")  // "O''Brien"
 ```
 
 ## Security
 
-The library includes SQL injection protection:
+The library includes protection for safe database operations:
 
-- Field names are validated against `/^[\w.]+$/` pattern
+- Field names are validated against `/^[\w.]+$/` pattern (alphanumeric, underscore, dot only)
 - All values are passed as parameterized queries
 - The `escapeSql` function provides additional escaping for string values
 

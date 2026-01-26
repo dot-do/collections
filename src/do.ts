@@ -20,7 +20,7 @@
  *   async fetch() {
  *     // Direct access - fully typed!
  *     this.entries.put('id', entry)
- *     this.collections.users.find({ active: true })
+ *     this.collections.users.query({ active: true })
  *   }
  * }
  *
@@ -33,14 +33,14 @@
  * ```
  */
 
-import type { Collection } from './types'
+import type { SyncCollection } from '@dotdo/types/database'
 import { createCollection, initCollectionsSchema } from './collection'
 
 /**
- * Type helper: Maps schema to Collection types
+ * Type helper: Maps schema to SyncCollection types
  */
 export type CollectionsProxy<Schema> = {
-  [K in keyof Schema]: Collection<Schema[K] & Record<string, unknown>>
+  [K in keyof Schema]: SyncCollection<Schema[K] & Record<string, unknown>>
 }
 
 /**
@@ -70,7 +70,7 @@ interface HasSqlStorage {
  * class MyDO extends withCollections<Schema>(DurableObject) {
  *   async fetch() {
  *     this.entries.put('id', entry)  // Direct access!
- *     this.collections.users.find({ active: true })
+ *     this.collections.users.query({ active: true })
  *   }
  * }
  * ```
@@ -82,7 +82,7 @@ export function withCollections<
   const instanceCache = new WeakMap<
     object,
     {
-      collections: Map<string, Collection<Record<string, unknown>>>
+      collections: Map<string, SyncCollection<Record<string, unknown>>>
       initialized: boolean
     }
   >()
@@ -99,7 +99,7 @@ export function withCollections<
   function getCollection<T extends Record<string, unknown>>(
     instance: HasSqlStorage,
     name: string
-  ): Collection<T> {
+  ): SyncCollection<T> {
     const state = getState(instance)
     let col = state.collections.get(name)
     if (!col) {
@@ -110,7 +110,7 @@ export function withCollections<
       col = createCollection<T>(instance.ctx.storage.sql, name)
       state.collections.set(name, col)
     }
-    return col as Collection<T>
+    return col as SyncCollection<T>
   }
 
   return function <T extends new (...args: any[]) => HasSqlStorage>(Base: T) {

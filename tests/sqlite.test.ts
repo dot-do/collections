@@ -222,7 +222,7 @@ describe('SQLite-backed createCollection', () => {
 
       const deleted = users.delete('user1')
       expect(deleted).toBe(true)
-      expect(users.get('user1')).toBeNull()
+      expect(users.get('user1')).toBeUndefined()
     })
 
     it('should return false when deleting non-existent document', () => {
@@ -255,38 +255,38 @@ describe('SQLite-backed createCollection', () => {
     })
 
     it('should filter with $eq operator', () => {
-      const results = products.find({ category: { $eq: 'electronics' } })
+      const results = products.query({ category: { $eq: 'electronics' } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.category === 'electronics')).toBe(true)
     })
 
     it('should filter with $gt operator', () => {
-      const results = products.find({ price: { $gt: 500 } })
+      const results = products.query({ price: { $gt: 500 } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.price > 500)).toBe(true)
     })
 
     it('should filter with $in operator', () => {
-      const results = products.find({ price: { $in: [149, 999] } })
+      const results = products.query({ price: { $in: [149, 999] } })
       expect(results.length).toBe(2)
     })
 
     it('should filter with $and operator', () => {
-      const results = products.find({
+      const results = products.query({
         $and: [{ category: 'electronics' }, { inStock: true }],
       })
       expect(results.length).toBe(2)
     })
 
     it('should filter with $or operator', () => {
-      const results = products.find({
+      const results = products.query({
         $or: [{ category: 'furniture' }, { price: { $gt: 900 } }],
       })
       expect(results.length).toBe(3) // Chair, Desk, Laptop
     })
 
     it('should filter with $regex operator', () => {
-      const results = products.find({ name: { $regex: '^[A-M]' } })
+      const results = products.query({ name: { $regex: '^[A-M]' } })
       expect(results.length).toBe(3) // Laptop, Chair, Desk (L, C, D in A-M)
     })
   })
@@ -308,19 +308,19 @@ describe('SQLite-backed createCollection', () => {
     })
 
     it('should sort ascending', () => {
-      const results = products.find({}, { sort: 'name' })
+      const results = products.query({}, { sort: 'name' })
       expect(results.map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Gamma'])
     })
 
     it('should sort descending with - prefix', () => {
-      const results = products.find({}, { sort: '-price' })
+      const results = products.query({}, { sort: '-price' })
       expect(results.map((p) => p.price)).toEqual([300, 200, 100])
     })
 
     it('should paginate with offset and limit', () => {
-      const page1 = products.find({}, { sort: 'name', limit: 1, offset: 0 })
-      const page2 = products.find({}, { sort: 'name', limit: 1, offset: 1 })
-      const page3 = products.find({}, { sort: 'name', limit: 1, offset: 2 })
+      const page1 = products.query({}, { sort: 'name', limit: 1, offset: 0 })
+      const page2 = products.query({}, { sort: 'name', limit: 1, offset: 1 })
+      const page3 = products.query({}, { sort: 'name', limit: 1, offset: 2 })
 
       expect(page1.map((p) => p.name)).toEqual(['Alpha'])
       expect(page2.map((p) => p.name)).toEqual(['Beta'])
@@ -347,7 +347,7 @@ describe('SQLite-backed createCollection', () => {
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: false })
 
       expect(users.count()).toBe(2)
-      expect(users.count({ active: true })).toBe(1)
+      expect(users.query({ active: true }).length).toBe(1)
     })
 
     it('should clear all documents', () => {
@@ -430,7 +430,7 @@ describe('SQLite-backed createCollection', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
       expect(() => {
-        users.find({}, { offset: 1 })
+        users.query({}, { offset: 1 })
       }).toThrow('offset requires limit to be specified')
     })
   })
@@ -441,7 +441,7 @@ describe('SQLite-backed createCollection', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
       expect(() => {
-        users.find({ "name'); DROP TABLE _collections; --": 'test' } as any)
+        users.query({ "name'); DROP TABLE _collections; --": 'test' } as any)
       }).toThrow('Invalid field name')
     })
 
@@ -449,11 +449,11 @@ describe('SQLite-backed createCollection', () => {
       const users = createCollection<User>(mockSql as unknown as SqlStorage, 'users')
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
-      const results = users.find({ name: { $eq: "'; DROP TABLE _collections; --" } })
+      const results = users.query({ name: { $eq: "'; DROP TABLE _collections; --" } })
       expect(results.length).toBe(0)
 
       // Verify table still exists
-      expect(users.get('u1')).not.toBeNull()
+      expect(users.get('u1')).not.toBeUndefined()
     })
   })
 })

@@ -4,7 +4,7 @@
  * Create a collection bound to a SQL storage
  */
 
-import type { Collection, Filter, QueryOptions } from './types'
+import type { SyncCollection, Filter, SyncQueryOptions } from '@dotdo/types/database'
 import { compileFilter, validateFieldName } from './filter'
 
 // ============================================================================
@@ -35,7 +35,7 @@ function validateDocument(doc: unknown): asserts doc is Record<string, unknown> 
  * Validate query options.
  * @throws Error if offset is used without limit
  */
-function validateQueryOptions(options?: QueryOptions): void {
+function validateQueryOptions(options?: SyncQueryOptions): void {
   if (options?.offset !== undefined && options?.limit === undefined) {
     throw new Error('offset requires limit to be specified')
   }
@@ -80,8 +80,8 @@ const initializedStorages = new WeakSet<SqlStorage>()
  * Create a collection bound to a SQL storage
  *
  * @param sql - The SqlStorage instance
- * @param name - The collection name
- * @returns A Collection interface for the specified collection
+ * @param collectionName - The collection name
+ * @returns A SyncCollection interface for the specified collection
  *
  * @example
  * ```typescript
@@ -92,8 +92,8 @@ const initializedStorages = new WeakSet<SqlStorage>()
  */
 export function createCollection<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: SqlStorage,
-  name: string
-): Collection<T> {
+  collectionName: string
+): SyncCollection<T> {
   // Initialize schema once per SqlStorage instance
   if (!initializedStorages.has(sql)) {
     initCollectionsSchema(sql)
@@ -101,12 +101,41 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
   }
 
   return {
-    get(id: string): T | null {
+    // Collection name property
+    get name(): string {
+      return collectionName
+    },
+
+    get(id: string): T | undefined {
       const rows = sql
-        .exec<{ data: string }>(`SELECT data FROM _collections WHERE collection = ? AND id = ?`, name, id)
+        .exec<{ data: string }>(`SELECT data FROM _collections WHERE collection = ? AND id = ?`, collectionName, id)
         .toArray()
       const firstRow = rows[0]
-      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : null
+      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : undefined
+    },
+
+    getMany(ids: string[]): Array<T | undefined> {
+      if (ids.length === 0) {
+        return []
+      }
+      // Fetch all documents in a single query
+      const placeholders = ids.map(() => '?').join(', ')
+      const rows = sql
+        .exec<{ id: string; data: string }>(
+          `SELECT id, data FROM _collections WHERE collection = ? AND id IN (${placeholders})`,
+          collectionName,
+          ...ids
+        )
+        .toArray()
+
+      // Create a map for O(1) lookup
+      const dataMap = new Map<string, T>()
+      for (const row of rows) {
+        dataMap.set(row.id, JSON.parse(row.data))
+      }
+
+      // Return in the same order as input IDs
+      return ids.map((id) => dataMap.get(id))
     },
 
     put(id: string, doc: T): void {
@@ -118,7 +147,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
         `INSERT INTO _collections (collection, id, data, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
-        name,
+        collectionName,
         id,
         data,
         now,
@@ -129,27 +158,27 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
     },
 
     delete(id: string): boolean {
-      const result = sql.exec(`DELETE FROM _collections WHERE collection = ? AND id = ?`, name, id)
+      const result = sql.exec(`DELETE FROM _collections WHERE collection = ? AND id = ?`, collectionName, id)
       return result.rowsWritten > 0
     },
 
     has(id: string): boolean {
       const rows = sql
-        .exec<{ c: number }>(`SELECT 1 as c FROM _collections WHERE collection = ? AND id = ?`, name, id)
+        .exec<{ c: number }>(`SELECT 1 as c FROM _collections WHERE collection = ? AND id = ?`, collectionName, id)
         .toArray()
       return rows.length > 0
     },
 
-    find(filter?: Filter<T>, options?: QueryOptions): T[] {
+    query(filter: Filter<T>, options?: SyncQueryOptions): T[] {
       validateQueryOptions(options)
-      const params: unknown[] = [name]
+      const params: unknown[] = [collectionName]
       let whereClause = 'collection = ?'
 
       if (filter && Object.keys(filter).length > 0) {
         whereClause += ' AND ' + compileFilter(filter, params)
       }
 
-      let query = `SELECT data FROM _collections WHERE ${whereClause}`
+      let queryStr = `SELECT data FROM _collections WHERE ${whereClause}`
 
       // Sort
       if (options?.sort) {
@@ -157,62 +186,55 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
         const field = desc ? options.sort.slice(1) : options.sort
         // Validate sort field to prevent SQL injection
         const safeField = validateFieldName(field)
-        query += ` ORDER BY json_extract(data, '$.${safeField}') ${desc ? 'DESC' : 'ASC'}`
+        queryStr += ` ORDER BY json_extract(data, '$.${safeField}') ${desc ? 'DESC' : 'ASC'}`
       } else {
-        query += ' ORDER BY updated_at DESC'
+        queryStr += ' ORDER BY updated_at DESC'
       }
 
       // Pagination
       if (options?.limit) {
-        query += ` LIMIT ${Number(options.limit)}`
+        queryStr += ` LIMIT ${Number(options.limit)}`
       }
       if (options?.offset) {
-        query += ` OFFSET ${Number(options.offset)}`
+        queryStr += ` OFFSET ${Number(options.offset)}`
       }
 
-      const rows = sql.exec<{ data: string }>(query, ...params).toArray()
+      const rows = sql.exec<{ data: string }>(queryStr, ...params).toArray()
       return rows.map((row) => JSON.parse(row.data))
     },
 
-    count(filter?: Filter<T>): number {
-      const params: unknown[] = [name]
-      let whereClause = 'collection = ?'
-
-      if (filter && Object.keys(filter).length > 0) {
-        whereClause += ' AND ' + compileFilter(filter, params)
-      }
-
+    count(): number {
       const rows = sql
-        .exec<{ c: number }>(`SELECT COUNT(*) as c FROM _collections WHERE ${whereClause}`, ...params)
+        .exec<{ c: number }>(`SELECT COUNT(*) as c FROM _collections WHERE collection = ?`, collectionName)
         .toArray()
       return rows[0]?.c ?? 0
     },
 
-    list(options?: QueryOptions): T[] {
-      return this.find(undefined, options)
+    list(options?: SyncQueryOptions): T[] {
+      return this.query({} as Filter<T>, options)
     },
 
     keys(): string[] {
       const rows = sql
-        .exec<{ id: string }>(`SELECT id FROM _collections WHERE collection = ? ORDER BY id`, name)
+        .exec<{ id: string }>(`SELECT id FROM _collections WHERE collection = ? ORDER BY id`, collectionName)
         .toArray()
       return rows.map((row) => row.id)
     },
 
     clear(): number {
-      const result = sql.exec(`DELETE FROM _collections WHERE collection = ?`, name)
+      const result = sql.exec(`DELETE FROM _collections WHERE collection = ?`, collectionName)
       return result.rowsWritten
     },
 
-    putMany(docs: Array<{ id: string; doc: T }>): number {
-      if (docs.length === 0) {
+    putMany(items: Array<{ id: string; doc: T }>): number {
+      if (items.length === 0) {
         return 0
       }
 
       const now = Date.now()
       let count = 0
 
-      for (const { id, doc } of docs) {
+      for (const { id, doc } of items) {
         validateDocumentId(id)
         validateDocument(doc)
         const data = JSON.stringify(doc)
@@ -220,7 +242,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
           `INSERT INTO _collections (collection, id, data, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
-          name,
+          collectionName,
           id,
           data,
           now,
@@ -243,7 +265,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       const placeholders = ids.map(() => '?').join(', ')
       const result = sql.exec(
         `DELETE FROM _collections WHERE collection = ? AND id IN (${placeholders})`,
-        name,
+        collectionName,
         ...ids
       )
       return result.rowsWritten

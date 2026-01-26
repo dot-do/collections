@@ -3,20 +3,84 @@
  *
  * Type definitions for MongoDB-style document store interfaces.
  *
- * These types are designed for synchronous SQLite operations with MongoDB-style
- * filter operators ($eq, $gt, $in, etc.). They are distinct from the async
- * collection interfaces in @dotdo/do/types which use a different filter pattern.
+ * These types are imported from @dotdo/types/database and re-exported for
+ * convenience. They are designed for synchronous SQLite operations with
+ * MongoDB-style filter operators ($eq, $gt, $in, etc.).
  *
  * For Digital Object integration, this package can be used as the underlying
  * storage implementation for $.db collections.
  *
  * @see {@link https://collections.do} for documentation
- * @see {@link @dotdo/do/types} for DO context types
+ * @see {@link @dotdo/types/database} for type definitions
  */
 
-// ============================================================================
-// Filter Operators
-// ============================================================================
+// =============================================================================
+// Re-export types from @dotdo/types/database
+// =============================================================================
+
+export type {
+  // Collection interfaces
+  SyncCollection,
+  SyncReadCollection,
+  SyncWriteCollection,
+  AsyncCollection,
+  AsyncReadCollection,
+  AsyncWriteCollection,
+  // Filter types
+  Filter,
+  FilterOperator,
+  FilterValue,
+  // Query options
+  SyncQueryOptions,
+  AsyncQueryOptions,
+  // Bulk operations
+  BulkResult,
+  BulkResultError,
+  // Legacy types (deprecated but still exported for compatibility)
+  CollectionFilter,
+  CollectionFilterOperator,
+  CollectionFieldFilter,
+} from '@dotdo/types/database'
+
+// =============================================================================
+// Local Type Aliases for Backward Compatibility
+// =============================================================================
+
+import type {
+  SyncCollection,
+  SyncReadCollection,
+  SyncWriteCollection,
+  Filter,
+  SyncQueryOptions,
+} from '@dotdo/types/database'
+
+/**
+ * Collection interface (alias for SyncCollection)
+ * @deprecated Use SyncCollection from @dotdo/types/database
+ */
+export type Collection<T extends Record<string, unknown> = Record<string, unknown>> = SyncCollection<T>
+
+/**
+ * Read-only collection interface (alias for SyncReadCollection)
+ * @deprecated Use SyncReadCollection from @dotdo/types/database
+ */
+export type ReadCollection<T extends Record<string, unknown> = Record<string, unknown>> = SyncReadCollection<T>
+
+/**
+ * Write-only collection interface (alias for SyncWriteCollection)
+ * @deprecated Use SyncWriteCollection from @dotdo/types/database
+ */
+export type WriteCollection<T extends Record<string, unknown> = Record<string, unknown>> = SyncWriteCollection<T>
+
+/**
+ * Query options (alias for SyncQueryOptions)
+ * @deprecated Use SyncQueryOptions from @dotdo/types/database
+ */
+export type QueryOptions = SyncQueryOptions
+
+// =============================================================================
+// Individual Filter Operator Types (for type guards)
+// =============================================================================
 
 /**
  * Equality operator
@@ -89,9 +153,9 @@ export interface RegexOperator {
 }
 
 /**
- * MongoDB-style filter operators
+ * MongoDB-style filter operators (union of all operator interfaces)
  */
-export type FilterOperator =
+export type FilterOperatorObject =
   | EqOperator
   | NeOperator
   | GtOperator
@@ -103,31 +167,9 @@ export type FilterOperator =
   | ExistsOperator
   | RegexOperator
 
-/**
- * MongoDB-style filter query
- */
-export type Filter<T> = {
-  [K in keyof T]?: T[K] | FilterOperator
-} & {
-  $and?: Filter<T>[]
-  $or?: Filter<T>[]
-}
-
-/**
- * Query options
- */
-export interface QueryOptions {
-  /** Maximum number of results */
-  limit?: number
-  /** Number of results to skip */
-  offset?: number
-  /** Sort by field (prefix with - for descending) */
-  sort?: string
-}
-
-// ============================================================================
+// =============================================================================
 // Type Guards
-// ============================================================================
+// =============================================================================
 
 /**
  * Check if value is an EqOperator
@@ -200,9 +242,9 @@ export function isRegexOperator(value: unknown): value is RegexOperator {
 }
 
 /**
- * Check if value is any FilterOperator
+ * Check if value is any FilterOperator object
  */
-export function isFilterOperator(value: unknown): value is FilterOperator {
+export function isFilterOperator(value: unknown): value is FilterOperatorObject {
   return (
     isEqOperator(value) ||
     isNeOperator(value) ||
@@ -216,48 +258,3 @@ export function isFilterOperator(value: unknown): value is FilterOperator {
     isRegexOperator(value)
   )
 }
-
-// ============================================================================
-// Collection Interfaces
-// ============================================================================
-
-/**
- * Read-only collection interface
- */
-export interface ReadCollection<T extends Record<string, unknown> = Record<string, unknown>> {
-  /** Get a document by ID */
-  get(id: string): T | null
-  /** Check if document exists */
-  has(id: string): boolean
-  /** Find documents matching filter */
-  find(filter?: Filter<T>, options?: QueryOptions): T[]
-  /** Count documents matching filter */
-  count(filter?: Filter<T>): number
-  /** List all documents */
-  list(options?: QueryOptions): T[]
-  /** Get all IDs */
-  keys(): string[]
-}
-
-/**
- * Write-only collection interface
- */
-export interface WriteCollection<T extends Record<string, unknown> = Record<string, unknown>> {
-  /** Put a document (insert or update) */
-  put(id: string, doc: T): void
-  /** Delete a document */
-  delete(id: string): boolean
-  /** Delete all documents in collection */
-  clear(): number
-  /** Put multiple documents (insert or update). Returns count of documents written. */
-  putMany(docs: Array<{ id: string; doc: T }>): number
-  /** Delete multiple documents by IDs. Returns count of documents deleted. */
-  deleteMany(ids: string[]): number
-}
-
-/**
- * Full collection interface (read + write)
- */
-export interface Collection<T extends Record<string, unknown> = Record<string, unknown>>
-  extends ReadCollection<T>,
-    WriteCollection<T> {}

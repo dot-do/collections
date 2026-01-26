@@ -4,7 +4,7 @@
  * Manage multiple collections with a single SqlStorage instance
  */
 
-import type { Collection } from './types'
+import type { SyncCollection } from '@dotdo/types/database'
 import { createCollection, initCollectionsSchema } from './collection'
 
 /**
@@ -33,7 +33,7 @@ export class Collections {
   // and TypeScript cannot track the relationship between collection names and their types.
   // The type safety is enforced at the public API level via the generic collection<T>() method.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private cache = new Map<string, Collection<any>>()
+  private cache = new Map<string, SyncCollection<any>>()
   private schemaInitialized = false
 
   constructor(sql: SqlStorage) {
@@ -54,15 +54,15 @@ export class Collections {
    * Get or create a collection
    *
    * @param name - The collection name
-   * @returns A Collection interface for the specified collection
+   * @returns A SyncCollection interface for the specified collection
    */
-  collection<T extends Record<string, unknown> = Record<string, unknown>>(name: string): Collection<T> {
+  collection<T extends Record<string, unknown> = Record<string, unknown>>(name: string): SyncCollection<T> {
     let col = this.cache.get(name)
     if (!col) {
       col = createCollection<T>(this.sql, name)
       this.cache.set(name, col)
     }
-    return col as Collection<T>
+    return col as SyncCollection<T>
   }
 
   /**

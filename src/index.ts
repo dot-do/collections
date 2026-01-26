@@ -22,7 +22,7 @@
  *   }
  *
  *   async getActiveUsers() {
- *     return this.users.find({ active: true, role: 'admin' })
+ *     return this.users.query({ active: true, role: 'admin' })
  *   }
  * }
  * ```
@@ -30,9 +30,38 @@
  * @packageDocumentation
  */
 
-// Types
+// Types from @dotdo/types/database
 export type {
+  // Main collection interfaces
+  SyncCollection,
+  SyncReadCollection,
+  SyncWriteCollection,
+  AsyncCollection,
+  AsyncReadCollection,
+  AsyncWriteCollection,
+  // Filter types
+  Filter,
   FilterOperator,
+  FilterValue,
+  // Query options
+  SyncQueryOptions,
+  AsyncQueryOptions,
+  // Bulk operations
+  BulkResult,
+  BulkResultError,
+  // Legacy types (deprecated)
+  CollectionFilter,
+  CollectionFilterOperator,
+  CollectionFieldFilter,
+} from '@dotdo/types/database'
+
+// Local type aliases (deprecated - use @dotdo/types/database directly)
+export type {
+  Collection,
+  ReadCollection,
+  WriteCollection,
+  QueryOptions,
+  // Filter operator interfaces (for type guards)
   EqOperator,
   NeOperator,
   GtOperator,
@@ -43,11 +72,7 @@ export type {
   NinOperator,
   ExistsOperator,
   RegexOperator,
-  Filter,
-  QueryOptions,
-  ReadCollection,
-  WriteCollection,
-  Collection,
+  FilterOperatorObject,
 } from './types'
 
 // Type guards

@@ -9,7 +9,7 @@
  * - Invalid regex patterns return no matches (fail closed)
  */
 
-import type { Collection, Filter, QueryOptions } from './types'
+import type { SyncCollection, Filter, SyncQueryOptions } from '@dotdo/types/database'
 import {
   isEqOperator,
   isNeOperator,
@@ -53,6 +53,11 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
       }
     } else if (key === '$or' && Array.isArray(value)) {
       if (!value.some((f) => evaluateFilter(doc, f))) {
+        return false
+      }
+    } else if (key === '$not' && value !== null && typeof value === 'object') {
+      // $not operator: negate the filter
+      if (evaluateFilter(doc, value as Filter<T>)) {
         return false
       }
     } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
@@ -121,17 +126,32 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
  *
  * @example
  * ```typescript
- * const users = new MemoryCollection<User>()
+ * const users = new MemoryCollection<User>('users')
  * users.put('user1', { name: 'Alice', email: 'alice@example.com' })
  * const user = users.get('user1')
  * ```
  */
-export class MemoryCollection<T extends Record<string, unknown> = Record<string, unknown>> implements Collection<T> {
+export class MemoryCollection<T extends Record<string, unknown> = Record<string, unknown>>
+  implements SyncCollection<T>
+{
   private data = new Map<string, { doc: T; createdAt: number; updatedAt: number }>()
+  private _name: string
 
-  get(id: string): T | null {
+  constructor(name: string = 'default') {
+    this._name = name
+  }
+
+  get name(): string {
+    return this._name
+  }
+
+  get(id: string): T | undefined {
     const entry = this.data.get(id)
-    return entry ? { ...entry.doc } : null
+    return entry ? { ...entry.doc } : undefined
+  }
+
+  getMany(ids: string[]): Array<T | undefined> {
+    return ids.map((id) => this.get(id))
   }
 
   put(id: string, doc: T): void {
@@ -152,7 +172,7 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return this.data.has(id)
   }
 
-  find(filter?: Filter<T>, options?: QueryOptions): T[] {
+  query(filter: Filter<T>, options?: SyncQueryOptions): T[] {
     let results: Array<{ id: string; doc: T; updatedAt: number }> = []
 
     for (const [id, entry] of this.data.entries()) {
@@ -190,22 +210,12 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return results.map((r) => r.doc)
   }
 
-  count(filter?: Filter<T>): number {
-    if (!filter || Object.keys(filter).length === 0) {
-      return this.data.size
-    }
-
-    let count = 0
-    for (const entry of this.data.values()) {
-      if (evaluateFilter(entry.doc, filter)) {
-        count++
-      }
-    }
-    return count
+  count(): number {
+    return this.data.size
   }
 
-  list(options?: QueryOptions): T[] {
-    return this.find(undefined, options)
+  list(options?: SyncQueryOptions): T[] {
+    return this.query({} as Filter<T>, options)
   }
 
   keys(): string[] {
@@ -218,13 +228,13 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return count
   }
 
-  putMany(docs: Array<{ id: string; doc: T }>): number {
-    if (docs.length === 0) {
+  putMany(items: Array<{ id: string; doc: T }>): number {
+    if (items.length === 0) {
       return 0
     }
 
     const now = Date.now()
-    for (const { id, doc } of docs) {
+    for (const { id, doc } of items) {
       const existing = this.data.get(id)
       this.data.set(id, {
         doc: { ...doc },
@@ -233,7 +243,7 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
       })
     }
 
-    return docs.length
+    return items.length
   }
 
   deleteMany(ids: string[]): number {
@@ -255,8 +265,11 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
 /**
  * Factory function to create a MemoryCollection
  *
+ * @param name - The collection name (default: 'default')
  * @returns A new MemoryCollection instance
  */
-export function createMemoryCollection<T extends Record<string, unknown> = Record<string, unknown>>(): Collection<T> {
-  return new MemoryCollection<T>()
+export function createMemoryCollection<T extends Record<string, unknown> = Record<string, unknown>>(
+  name: string = 'default'
+): SyncCollection<T> {
+  return new MemoryCollection<T>(name)
 }

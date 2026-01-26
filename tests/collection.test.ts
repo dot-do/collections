@@ -292,7 +292,7 @@ describe('Collection CRUD Operations', () => {
       users.put('user1', { name: 'Alice', email: 'alice@example.com', age: 30, active: true })
 
       const retrieved = users.get('user1')
-      expect(retrieved).not.toBeNull()
+      expect(retrieved).not.toBeUndefined()
       expect(retrieved?.name).toBe('Alice')
     })
 
@@ -309,14 +309,14 @@ describe('Collection CRUD Operations', () => {
   describe('get() - return null for non-existent document', () => {
     it('should return null for non-existent document', () => {
       const retrieved = users.get('nonexistent')
-      expect(retrieved).toBeNull()
+      expect(retrieved).toBeUndefined()
     })
 
     it('should return null for deleted document', () => {
       users.put('user1', { name: 'Alice', email: 'alice@example.com', age: 30, active: true })
       users.delete('user1')
 
-      expect(users.get('user1')).toBeNull()
+      expect(users.get('user1')).toBeUndefined()
     })
   })
 
@@ -332,7 +332,7 @@ describe('Collection CRUD Operations', () => {
       users.put('user1', { name: 'Alice', email: 'alice@example.com', age: 30, active: true })
       users.delete('user1')
 
-      expect(users.get('user1')).toBeNull()
+      expect(users.get('user1')).toBeUndefined()
       expect(users.has('user1')).toBe(false)
     })
 
@@ -341,7 +341,7 @@ describe('Collection CRUD Operations', () => {
       users.put('user2', { name: 'Bob', email: 'bob@example.com', age: 25, active: true })
       users.delete('user1')
 
-      expect(users.get('user2')).not.toBeNull()
+      expect(users.get('user2')).not.toBeUndefined()
     })
   })
 
@@ -475,11 +475,11 @@ describe('Bulk Operations', () => {
 
       expect(count).toBe(3)
       expect(users.count()).toBe(2)
-      expect(users.get('u1')).toBeNull()
+      expect(users.get('u1')).toBeUndefined()
       expect(users.get('u2')?.name).toBe('Bob')
-      expect(users.get('u3')).toBeNull()
+      expect(users.get('u3')).toBeUndefined()
       expect(users.get('u4')?.name).toBe('Diana')
-      expect(users.get('u5')).toBeNull()
+      expect(users.get('u5')).toBeUndefined()
     })
 
     it('should return 0 for non-existent IDs', () => {
@@ -494,8 +494,8 @@ describe('Bulk Operations', () => {
 
       expect(count).toBe(2)
       expect(users.count()).toBe(3)
-      expect(users.get('u1')).toBeNull()
-      expect(users.get('u3')).toBeNull()
+      expect(users.get('u1')).toBeUndefined()
+      expect(users.get('u3')).toBeUndefined()
     })
 
     it('should handle single ID', () => {
@@ -503,7 +503,7 @@ describe('Bulk Operations', () => {
 
       expect(count).toBe(1)
       expect(users.count()).toBe(4)
-      expect(users.get('u1')).toBeNull()
+      expect(users.get('u1')).toBeUndefined()
     })
 
     it('should handle deleting all documents', () => {
@@ -518,8 +518,8 @@ describe('Bulk Operations', () => {
 
       // In memory implementation, duplicates after first delete won't count
       // The exact count depends on implementation, but documents should be deleted
-      expect(users.get('u1')).toBeNull()
-      expect(users.get('u2')).toBeNull()
+      expect(users.get('u1')).toBeUndefined()
+      expect(users.get('u2')).toBeUndefined()
       expect(users.count()).toBe(3)
     })
   })
@@ -557,19 +557,19 @@ describe('Filter Operations', () => {
 
   describe('$eq - equality operator', () => {
     it('should find documents with exact field match', () => {
-      const results = products.find({ category: { $eq: 'electronics' } })
+      const results = products.query({ category: { $eq: 'electronics' } })
       expect(results.length).toBe(3)
       expect(results.every((p) => p.category === 'electronics')).toBe(true)
     })
 
     it('should find documents with boolean equality', () => {
-      const results = products.find({ inStock: { $eq: true } })
+      const results = products.query({ inStock: { $eq: true } })
       expect(results.length).toBe(3)
       expect(results.every((p) => p.inStock === true)).toBe(true)
     })
 
     it('should find documents with numeric equality', () => {
-      const results = products.find({ price: { $eq: 599 } })
+      const results = products.query({ price: { $eq: 599 } })
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Phone')
     })
@@ -577,13 +577,13 @@ describe('Filter Operations', () => {
 
   describe('$ne - not equal operator', () => {
     it('should find documents where field is not equal', () => {
-      const results = products.find({ category: { $ne: 'electronics' } })
+      const results = products.query({ category: { $ne: 'electronics' } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.category !== 'electronics')).toBe(true)
     })
 
     it('should work with boolean values', () => {
-      const results = products.find({ inStock: { $ne: true } })
+      const results = products.query({ inStock: { $ne: true } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.inStock !== true)).toBe(true)
     })
@@ -591,13 +591,13 @@ describe('Filter Operations', () => {
 
   describe('$gt - greater than operator', () => {
     it('should find documents with field greater than value', () => {
-      const results = products.find({ price: { $gt: 500 } })
+      const results = products.query({ price: { $gt: 500 } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.price > 500)).toBe(true)
     })
 
     it('should not include equal values', () => {
-      const results = products.find({ price: { $gt: 599 } })
+      const results = products.query({ price: { $gt: 599 } })
       expect(results.length).toBe(1)
       expect(results[0].price).toBe(999)
     })
@@ -605,13 +605,13 @@ describe('Filter Operations', () => {
 
   describe('$gte - greater than or equal operator', () => {
     it('should find documents with field greater than or equal to value', () => {
-      const results = products.find({ price: { $gte: 399 } })
+      const results = products.query({ price: { $gte: 399 } })
       expect(results.length).toBe(3)
       expect(results.every((p) => p.price >= 399)).toBe(true)
     })
 
     it('should include equal values', () => {
-      const results = products.find({ price: { $gte: 599 } })
+      const results = products.query({ price: { $gte: 599 } })
       expect(results.length).toBe(2)
       expect(results.some((p) => p.price === 599)).toBe(true)
     })
@@ -619,26 +619,26 @@ describe('Filter Operations', () => {
 
   describe('$lt - less than operator', () => {
     it('should find documents with field less than value', () => {
-      const results = products.find({ price: { $lt: 300 } })
+      const results = products.query({ price: { $lt: 300 } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.price < 300)).toBe(true)
     })
 
     it('should not include equal values', () => {
-      const results = products.find({ price: { $lt: 149 } })
+      const results = products.query({ price: { $lt: 149 } })
       expect(results.length).toBe(0)
     })
   })
 
   describe('$lte - less than or equal operator', () => {
     it('should find documents with field less than or equal to value', () => {
-      const results = products.find({ price: { $lte: 299 } })
+      const results = products.query({ price: { $lte: 299 } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.price <= 299)).toBe(true)
     })
 
     it('should include equal values', () => {
-      const results = products.find({ price: { $lte: 149 } })
+      const results = products.query({ price: { $lte: 149 } })
       expect(results.length).toBe(1)
       expect(results[0].price).toBe(149)
     })
@@ -646,30 +646,30 @@ describe('Filter Operations', () => {
 
   describe('$in - array membership operator', () => {
     it('should find documents where field is in array', () => {
-      const results = products.find({ category: { $in: ['electronics', 'furniture'] } })
+      const results = products.query({ category: { $in: ['electronics', 'furniture'] } })
       expect(results.length).toBe(5)
     })
 
     it('should find documents with price in array', () => {
-      const results = products.find({ price: { $in: [149, 599, 999] } })
+      const results = products.query({ price: { $in: [149, 599, 999] } })
       expect(results.length).toBe(3)
     })
 
     it('should return empty when no match in array', () => {
-      const results = products.find({ category: { $in: ['clothing', 'food'] } })
+      const results = products.query({ category: { $in: ['clothing', 'food'] } })
       expect(results.length).toBe(0)
     })
   })
 
   describe('$nin - not in array operator', () => {
     it('should find documents where field is not in array', () => {
-      const results = products.find({ category: { $nin: ['electronics'] } })
+      const results = products.query({ category: { $nin: ['electronics'] } })
       expect(results.length).toBe(2)
       expect(results.every((p) => p.category !== 'electronics')).toBe(true)
     })
 
     it('should work with numeric values', () => {
-      const results = products.find({ price: { $nin: [999, 599] } })
+      const results = products.query({ price: { $nin: [999, 599] } })
       expect(results.length).toBe(3)
       expect(results.every((p) => p.price !== 999 && p.price !== 599)).toBe(true)
     })
@@ -681,7 +681,7 @@ describe('Filter Operations', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true, role: 'admin' })
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: true })
 
-      const results = users.find({ role: { $exists: true } })
+      const results = users.query({ role: { $exists: true } })
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Alice')
     })
@@ -691,7 +691,7 @@ describe('Filter Operations', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true, role: 'admin' })
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: true })
 
-      const results = users.find({ role: { $exists: false } })
+      const results = users.query({ role: { $exists: false } })
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Bob')
     })
@@ -699,20 +699,20 @@ describe('Filter Operations', () => {
 
   describe('$regex - regex matching operator', () => {
     it('should find documents matching regex pattern', () => {
-      const results = products.find({ name: { $regex: '^[A-M]' } })
+      const results = products.query({ name: { $regex: '^[A-M]' } })
       expect(results.length).toBe(4)
       expect(results.every((p) => /^[A-M]/.test(p.name))).toBe(true)
     })
 
     it('should find documents with partial match', () => {
-      const results = products.find({ name: { $regex: 'o' } })
+      const results = products.query({ name: { $regex: 'o' } })
       expect(results.length).toBe(3) // Phone, Monitor, Laptop
     })
   })
 
   describe('$and - logical AND operator', () => {
     it('should find documents matching all conditions', () => {
-      const results = products.find({
+      const results = products.query({
         $and: [{ category: 'electronics' }, { inStock: true }],
       })
       expect(results.length).toBe(2)
@@ -720,7 +720,7 @@ describe('Filter Operations', () => {
     })
 
     it('should work with multiple comparison operators', () => {
-      const results = products.find({
+      const results = products.query({
         $and: [{ price: { $gte: 300 } }, { price: { $lte: 700 } }],
       })
       expect(results.length).toBe(2)
@@ -728,7 +728,7 @@ describe('Filter Operations', () => {
     })
 
     it('should return empty when no documents match all conditions', () => {
-      const results = products.find({
+      const results = products.query({
         $and: [{ category: 'electronics' }, { price: { $lt: 100 } }],
       })
       expect(results.length).toBe(0)
@@ -737,14 +737,14 @@ describe('Filter Operations', () => {
 
   describe('$or - logical OR operator', () => {
     it('should find documents matching any condition', () => {
-      const results = products.find({
+      const results = products.query({
         $or: [{ category: 'electronics' }, { inStock: false }],
       })
       expect(results.length).toBe(4)
     })
 
     it('should work with equality and comparison operators', () => {
-      const results = products.find({
+      const results = products.query({
         $or: [{ price: { $lt: 200 } }, { price: { $gt: 900 } }],
       })
       expect(results.length).toBe(2)
@@ -769,7 +769,7 @@ describe('Filter Operations', () => {
         metadata: { level: 3, verified: false },
       })
 
-      const results = users.find({ 'metadata.level': 5 } as any)
+      const results = users.query({ 'metadata.level': 5 } as any)
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Alice')
     })
@@ -793,7 +793,7 @@ describe('Filter Operations', () => {
         metadata: { role: 'user', level: 1 },
       })
 
-      const results = users.find({ metadata: { role: 'admin', level: 5 } } as any)
+      const results = users.query({ metadata: { role: 'admin', level: 5 } } as any)
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Alice')
     })
@@ -801,18 +801,18 @@ describe('Filter Operations', () => {
 
   describe('Implicit equality matching', () => {
     it('should treat plain values as equality filter', () => {
-      const results = products.find({ category: 'electronics' })
+      const results = products.query({ category: 'electronics' })
       expect(results.length).toBe(3)
       expect(results.every((p) => p.category === 'electronics')).toBe(true)
     })
 
     it('should match boolean values', () => {
-      const results = products.find({ inStock: true })
+      const results = products.query({ inStock: true })
       expect(results.length).toBe(3)
     })
 
     it('should match numeric values', () => {
-      const results = products.find({ price: 599 })
+      const results = products.query({ price: 599 })
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Phone')
     })
@@ -854,14 +854,14 @@ describe('Query Options', () => {
     })
 
     it('should work with find and filter', () => {
-      const results = products.find({ inStock: true }, { limit: 3 })
+      const results = products.query({ inStock: true }, { limit: 3 })
       expect(results.length).toBe(3)
     })
   })
 
   describe('offset option', () => {
     it('should skip the specified number of results', () => {
-      const results = products.find({}, { sort: 'name', offset: 2, limit: 100 })
+      const results = products.query({}, { sort: 'name', offset: 2, limit: 100 })
       expect(results.length).toBe(3)
       expect(results[0].name).toBe('Delta')
     })
@@ -872,9 +872,9 @@ describe('Query Options', () => {
     })
 
     it('should work with limit for pagination', () => {
-      const page1 = products.find({}, { sort: 'name', limit: 2, offset: 0 })
-      const page2 = products.find({}, { sort: 'name', limit: 2, offset: 2 })
-      const page3 = products.find({}, { sort: 'name', limit: 2, offset: 4 })
+      const page1 = products.query({}, { sort: 'name', limit: 2, offset: 0 })
+      const page2 = products.query({}, { sort: 'name', limit: 2, offset: 2 })
+      const page3 = products.query({}, { sort: 'name', limit: 2, offset: 4 })
 
       expect(page1.map((p) => p.name)).toEqual(['Alpha', 'Beta'])
       expect(page2.map((p) => p.name)).toEqual(['Delta', 'Epsilon'])
@@ -884,31 +884,31 @@ describe('Query Options', () => {
 
   describe('sort option - ascending', () => {
     it('should sort results by field ascending', () => {
-      const results = products.find({}, { sort: 'name' })
+      const results = products.query({}, { sort: 'name' })
       expect(results.map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Delta', 'Epsilon', 'Gamma'])
     })
 
     it('should sort numeric fields ascending', () => {
-      const results = products.find({}, { sort: 'price' })
+      const results = products.query({}, { sort: 'price' })
       expect(results.map((p) => p.price)).toEqual([100, 200, 300, 400, 500])
     })
   })
 
   describe('sort option - descending with - prefix', () => {
     it('should sort results by field descending', () => {
-      const results = products.find({}, { sort: '-name' })
+      const results = products.query({}, { sort: '-name' })
       expect(results.map((p) => p.name)).toEqual(['Gamma', 'Epsilon', 'Delta', 'Beta', 'Alpha'])
     })
 
     it('should sort numeric fields descending', () => {
-      const results = products.find({}, { sort: '-price' })
+      const results = products.query({}, { sort: '-price' })
       expect(results.map((p) => p.price)).toEqual([500, 400, 300, 200, 100])
     })
   })
 
   describe('combined options', () => {
     it('should apply sort, limit, and offset together', () => {
-      const results = products.find({}, { sort: 'price', limit: 2, offset: 1 })
+      const results = products.query({}, { sort: 'price', limit: 2, offset: 1 })
       expect(results.length).toBe(2)
       expect(results.map((p) => p.price)).toEqual([200, 300])
     })
@@ -916,7 +916,7 @@ describe('Query Options', () => {
     it('should apply filter with sort and limit', () => {
       products.put('p6', { name: 'Zeta', price: 50, category: 'a', inStock: true })
 
-      const results = products.find({ category: 'a' }, { sort: '-price', limit: 1 })
+      const results = products.query({ category: 'a' }, { sort: '-price', limit: 1 })
       expect(results.length).toBe(1)
       expect(results[0].name).toBe('Alpha')
     })
@@ -1015,9 +1015,9 @@ describe('Collection Management', () => {
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: true })
       users.put('u3', { name: 'Charlie', email: 'c@test.com', age: 35, active: false })
 
-      expect(users.count({ active: true })).toBe(2)
-      expect(users.count({ active: false })).toBe(1)
-      expect(users.count({ age: { $gt: 28 } })).toBe(2)
+      expect(users.query({ active: true }).length).toBe(2)
+      expect(users.query({ active: false }).length).toBe(1)
+      expect(users.query({ age: { $gt: 28 } }).length).toBe(2)
     })
   })
 
@@ -1052,7 +1052,7 @@ describe('Edge Cases', () => {
     it('should handle find on empty collection', () => {
       const users = createMemoryCollection<User>()
 
-      const results = users.find({ active: true })
+      const results = users.query({ active: true })
       expect(results).toEqual([])
     })
 
@@ -1060,7 +1060,7 @@ describe('Edge Cases', () => {
       const users = createMemoryCollection<User>()
 
       expect(users.count()).toBe(0)
-      expect(users.count({ active: true })).toBe(0)
+      expect(users.query({ active: true }).length).toBe(0)
     })
 
     it('should handle list on empty collection', () => {
@@ -1094,7 +1094,7 @@ describe('Edge Cases', () => {
       users.put('large', largeDoc)
 
       const retrieved = users.get('large')
-      expect(retrieved).not.toBeNull()
+      expect(retrieved).not.toBeUndefined()
       expect(Object.keys(retrieved!).length).toBe(100)
       expect(retrieved!['field50']).toBe('value50')
     })
@@ -1106,7 +1106,7 @@ describe('Edge Cases', () => {
       users.put('large', { content: largeString })
 
       const retrieved = users.get('large')
-      expect(retrieved).not.toBeNull()
+      expect(retrieved).not.toBeUndefined()
       expect((retrieved!['content'] as string).length).toBe(100000)
     })
 
@@ -1130,7 +1130,7 @@ describe('Edge Cases', () => {
       users.put('deep', deepDoc)
 
       const retrieved = users.get('deep')
-      expect(retrieved).not.toBeNull()
+      expect(retrieved).not.toBeUndefined()
       expect((retrieved as any).level1.level2.level3.level4.level5.value).toBe('deep')
     })
   })
@@ -1185,7 +1185,7 @@ describe('Edge Cases', () => {
       users.put('u1', { name: 'Alice', middleName: null, age: 30 })
 
       const retrieved = users.get('u1')
-      expect(retrieved).not.toBeNull()
+      expect(retrieved).not.toBeUndefined()
       expect(retrieved!['middleName']).toBeNull()
     })
 
@@ -1210,7 +1210,7 @@ describe('Edge Cases', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: false })
 
-      const results = users.find({})
+      const results = users.query({})
       expect(results.length).toBe(2)
     })
 
@@ -1220,7 +1220,7 @@ describe('Edge Cases', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
       users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: false })
 
-      const results = users.find(undefined)
+      const results = users.query(undefined)
       expect(results.length).toBe(2)
     })
   })
@@ -1266,7 +1266,7 @@ describe('Edge Cases', () => {
       // Rapid gets
       for (let i = 0; i < 100; i++) {
         const doc = users.get(`user${i}`)
-        expect(doc).not.toBeNull()
+        expect(doc).not.toBeUndefined()
         expect(doc!['index']).toBe(i)
       }
     })
@@ -1285,7 +1285,7 @@ describe('Error Cases', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
       // Unknown operator should be treated as plain object match
-      const results = users.find({ age: { $unknown: 30 } as any })
+      const results = users.query({ age: { $unknown: 30 } as any })
       // This will try to match the object { $unknown: 30 } which won't match
       expect(results.length).toBe(0)
     })
@@ -1298,7 +1298,7 @@ describe('Error Cases', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
       // Empty $and should not add conditions
-      const results = users.find({ $and: [] })
+      const results = users.query({ $and: [] })
       expect(results.length).toBe(1)
     })
 
@@ -1308,7 +1308,7 @@ describe('Error Cases', () => {
       users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
 
       // Empty $or should not add conditions (but currently returns 0 since none match)
-      const results = users.find({ $or: [] })
+      const results = users.query({ $or: [] })
       // In our implementation, empty $or returns no matches
       expect(results.length).toBe(0)
     })
@@ -1322,14 +1322,14 @@ describe('Error Cases', () => {
       users.put('u2', { name: 'Bob', score: 5 })
       users.put('u3', { name: 'Charlie', score: -5 })
 
-      const gtZero = users.find({ score: { $gt: 0 } })
+      const gtZero = users.query({ score: { $gt: 0 } })
       expect(gtZero.length).toBe(1)
       expect(gtZero[0]['name']).toBe('Bob')
 
-      const gteZero = users.find({ score: { $gte: 0 } })
+      const gteZero = users.query({ score: { $gte: 0 } })
       expect(gteZero.length).toBe(2)
 
-      const ltZero = users.find({ score: { $lt: 0 } })
+      const ltZero = users.query({ score: { $lt: 0 } })
       expect(ltZero.length).toBe(1)
       expect(ltZero[0]['name']).toBe('Charlie')
     })
@@ -1341,10 +1341,10 @@ describe('Error Cases', () => {
       users.put('u2', { name: 'Bob', balance: -50 })
       users.put('u3', { name: 'Charlie', balance: 50 })
 
-      const negative = users.find({ balance: { $lt: 0 } })
+      const negative = users.query({ balance: { $lt: 0 } })
       expect(negative.length).toBe(2)
 
-      const moreThanNeg75 = users.find({ balance: { $gt: -75 } })
+      const moreThanNeg75 = users.query({ balance: { $gt: -75 } })
       expect(moreThanNeg75.length).toBe(2)
     })
 
@@ -1355,7 +1355,7 @@ describe('Error Cases', () => {
       users.put('u2', { name: 'Bob', rating: 3.7 })
       users.put('u3', { name: 'Charlie', rating: 4.0 })
 
-      const highRating = users.find({ rating: { $gte: 4.0 } })
+      const highRating = users.query({ rating: { $gte: 4.0 } })
       expect(highRating.length).toBe(2)
     })
   })

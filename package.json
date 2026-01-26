@@ -79,5 +79,8 @@
     "@dotdo/do": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@dotdo/types": "0.1.1"
   }
 }
