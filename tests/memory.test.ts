@@ -300,3 +300,188 @@ describe('Filter edge cases', () => {
     })
   })
 })
+
+// ============================================================================
+// Security Tests
+// ============================================================================
+
+describe('Security: Empty $in/$nin array handling', () => {
+  describe('$in with empty array', () => {
+    it('should return no results with empty $in array', () => {
+      const collection = createMemoryCollection<{ category: string; name: string }>()
+
+      collection.put('p1', { category: 'electronics', name: 'Phone' })
+      collection.put('p2', { category: 'furniture', name: 'Chair' })
+      collection.put('p3', { category: 'electronics', name: 'Laptop' })
+
+      const results = collection.find({ category: { $in: [] } })
+      expect(results.length).toBe(0)
+    })
+
+    it('should return no results when combined with other filters and empty $in', () => {
+      const collection = createMemoryCollection<{ category: string; active: boolean }>()
+
+      collection.put('p1', { category: 'electronics', active: true })
+      collection.put('p2', { category: 'furniture', active: true })
+
+      const results = collection.find({
+        $and: [{ active: true }, { category: { $in: [] } }],
+      })
+      expect(results.length).toBe(0)
+    })
+  })
+
+  describe('$nin with empty array', () => {
+    it('should return all results with empty $nin array', () => {
+      const collection = createMemoryCollection<{ category: string; name: string }>()
+
+      collection.put('p1', { category: 'electronics', name: 'Phone' })
+      collection.put('p2', { category: 'furniture', name: 'Chair' })
+      collection.put('p3', { category: 'electronics', name: 'Laptop' })
+
+      const results = collection.find({ category: { $nin: [] } })
+      expect(results.length).toBe(3)
+    })
+
+    it('should respect other filters when $nin is empty', () => {
+      const collection = createMemoryCollection<{ category: string; active: boolean }>()
+
+      collection.put('p1', { category: 'electronics', active: true })
+      collection.put('p2', { category: 'furniture', active: false })
+      collection.put('p3', { category: 'clothing', active: true })
+
+      const results = collection.find({
+        $and: [{ active: true }, { category: { $nin: [] } }],
+      })
+      expect(results.length).toBe(2)
+    })
+  })
+})
+
+describe('Security: ReDoS protection', () => {
+  describe('Long regex patterns', () => {
+    it('should reject regex patterns longer than 1000 characters', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'hello world' })
+      collection.put('t2', { text: 'test string' })
+
+      // Create a pattern longer than 1000 characters
+      const longPattern = 'a'.repeat(1001)
+
+      const results = collection.find({ text: { $regex: longPattern } })
+      // Should return no matches (pattern rejected)
+      expect(results.length).toBe(0)
+    })
+
+    it('should accept regex patterns at the 1000 character limit', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      // Create a text that contains 1000 'a' characters
+      const longText = 'a'.repeat(1000)
+      collection.put('t1', { text: longText })
+      collection.put('t2', { text: 'test string' })
+
+      // Create a pattern exactly 1000 characters (at the limit)
+      const limitPattern = 'a'.repeat(1000)
+
+      const results = collection.find({ text: { $regex: limitPattern } })
+      // Should work and find the matching document
+      expect(results.length).toBe(1)
+    })
+  })
+
+  describe('Nested quantifiers (ReDoS patterns)', () => {
+    it('should reject patterns with nested quantifiers like (a+)+', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' })
+
+      // Classic ReDoS pattern: (a+)+
+      const results = collection.find({ text: { $regex: '(a+)+' } })
+      expect(results.length).toBe(0)
+    })
+
+    it('should reject patterns with nested quantifiers like (a*)+', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'aaaaaaaaaa' })
+
+      const results = collection.find({ text: { $regex: '(a*)+' } })
+      expect(results.length).toBe(0)
+    })
+
+    it('should reject patterns with nested quantifiers like (a+)*', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'aaaaaaaaaa' })
+
+      const results = collection.find({ text: { $regex: '(a+)*' } })
+      expect(results.length).toBe(0)
+    })
+
+    it('should reject patterns with nested groups containing quantifiers', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'test' })
+
+      // Pattern with nested groups: ((a+)b)+
+      const results = collection.find({ text: { $regex: '((a+)b)+' } })
+      expect(results.length).toBe(0)
+    })
+
+    it('should allow safe patterns without nested quantifiers', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'hello world' })
+      collection.put('t2', { text: 'goodbye world' })
+
+      // Safe pattern: simple quantifier
+      const results = collection.find({ text: { $regex: 'hello.*world' } })
+      expect(results.length).toBe(1)
+    })
+
+    it('should allow patterns with single quantifiers in groups', () => {
+      const collection = createMemoryCollection<{ email: string }>()
+
+      collection.put('t1', { email: 'test@example.com' })
+      collection.put('t2', { email: 'invalid' })
+
+      // Safe pattern: group without nested quantifiers applied to it
+      const results = collection.find({ email: { $regex: '@[a-z]+\\.com$' } })
+      expect(results.length).toBe(1)
+    })
+  })
+
+  describe('Malicious regex patterns should not hang', () => {
+    it('should not hang on exponential backtracking pattern', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      // This input would cause exponential backtracking with vulnerable regex
+      collection.put('t1', { text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab' })
+
+      const startTime = Date.now()
+      // This pattern would hang without protection: (a+)+$
+      const results = collection.find({ text: { $regex: '(a+)+$' } })
+      const elapsed = Date.now() - startTime
+
+      // Should complete quickly (rejected pattern or fast execution)
+      expect(elapsed).toBeLessThan(1000)
+      expect(results.length).toBe(0)
+    })
+
+    it('should not hang on polynomial backtracking pattern', () => {
+      const collection = createMemoryCollection<{ text: string }>()
+
+      collection.put('t1', { text: 'a'.repeat(50) + 'X' })
+
+      const startTime = Date.now()
+      // Pattern that could cause polynomial time: (a*)*b
+      const results = collection.find({ text: { $regex: '(a*)*b' } })
+      const elapsed = Date.now() - startTime
+
+      expect(elapsed).toBeLessThan(1000)
+      expect(results.length).toBe(0)
+    })
+  })
+})

@@ -8,6 +8,40 @@ import type { Collection, Filter, QueryOptions } from './types'
 import { compileFilter, validateFieldName } from './filter'
 
 // ============================================================================
+// Input Validation
+// ============================================================================
+
+/**
+ * Validate document ID for put() operations.
+ * @throws Error if id is not a non-empty string
+ */
+function validateDocumentId(id: unknown): asserts id is string {
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new Error('Document ID must be a non-empty string')
+  }
+}
+
+/**
+ * Validate document for put() operations.
+ * @throws Error if doc is not a non-null object
+ */
+function validateDocument(doc: unknown): asserts doc is Record<string, unknown> {
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
+    throw new Error('Document must be a non-null object')
+  }
+}
+
+/**
+ * Validate query options.
+ * @throws Error if offset is used without limit
+ */
+function validateQueryOptions(options?: QueryOptions): void {
+  if (options?.offset !== undefined && options?.limit === undefined) {
+    throw new Error('offset requires limit to be specified')
+  }
+}
+
+// ============================================================================
 // SQL Schema
 // ============================================================================
 
@@ -71,10 +105,13 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       const rows = sql
         .exec<{ data: string }>(`SELECT data FROM _collections WHERE collection = ? AND id = ?`, name, id)
         .toArray()
-      return rows.length > 0 ? JSON.parse(rows[0].data) : null
+      const firstRow = rows[0]
+      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : null
     },
 
     put(id: string, doc: T): void {
+      validateDocumentId(id)
+      validateDocument(doc)
       const data = JSON.stringify(doc)
       const now = Date.now()
       sql.exec(
@@ -104,6 +141,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
     },
 
     find(filter?: Filter<T>, options?: QueryOptions): T[] {
+      validateQueryOptions(options)
       const params: unknown[] = [name]
       let whereClause = 'collection = ?'
 
@@ -163,6 +201,51 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
 
     clear(): number {
       const result = sql.exec(`DELETE FROM _collections WHERE collection = ?`, name)
+      return result.rowsWritten
+    },
+
+    putMany(docs: Array<{ id: string; doc: T }>): number {
+      if (docs.length === 0) {
+        return 0
+      }
+
+      const now = Date.now()
+      let count = 0
+
+      for (const { id, doc } of docs) {
+        validateDocumentId(id)
+        validateDocument(doc)
+        const data = JSON.stringify(doc)
+        sql.exec(
+          `INSERT INTO _collections (collection, id, data, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
+          name,
+          id,
+          data,
+          now,
+          now,
+          data,
+          now
+        )
+        count++
+      }
+
+      return count
+    },
+
+    deleteMany(ids: string[]): number {
+      if (ids.length === 0) {
+        return 0
+      }
+
+      // Build placeholders for IN clause
+      const placeholders = ids.map(() => '?').join(', ')
+      const result = sql.exec(
+        `DELETE FROM _collections WHERE collection = ? AND id IN (${placeholders})`,
+        name,
+        ...ids
+      )
       return result.rowsWritten
     },
   }

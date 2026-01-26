@@ -1,7 +1,17 @@
 /**
  * Collection Types
  *
- * Type definitions for MongoDB-style document store interfaces
+ * Type definitions for MongoDB-style document store interfaces.
+ *
+ * These types are designed for synchronous SQLite operations with MongoDB-style
+ * filter operators ($eq, $gt, $in, etc.). They are distinct from the async
+ * collection interfaces in @dotdo/do/types which use a different filter pattern.
+ *
+ * For Digital Object integration, this package can be used as the underlying
+ * storage implementation for $.db collections.
+ *
+ * @see {@link https://collections.do} for documentation
+ * @see {@link @dotdo/do/types} for DO context types
  */
 
 // ============================================================================
@@ -239,6 +249,10 @@ export interface WriteCollection<T extends Record<string, unknown> = Record<stri
   delete(id: string): boolean
   /** Delete all documents in collection */
   clear(): number
+  /** Put multiple documents (insert or update). Returns count of documents written. */
+  putMany(docs: Array<{ id: string; doc: T }>): number
+  /** Delete multiple documents by IDs. Returns count of documents deleted. */
+  deleteMany(ids: string[]): number
 }
 
 /**

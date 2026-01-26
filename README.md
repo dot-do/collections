@@ -113,7 +113,25 @@ interface Collection<T> {
   put(id: string, doc: T): void
   delete(id: string): boolean
   clear(): number
+  putMany(docs: Array<{ id: string; doc: T }>): number  // Bulk insert/update
+  deleteMany(ids: string[]): number  // Bulk delete
 }
+```
+
+### Bulk Operations
+
+```typescript
+// Insert or update multiple documents at once
+const count = users.putMany([
+  { id: 'user1', doc: { name: 'Alice', email: 'alice@example.com', age: 30, active: true } },
+  { id: 'user2', doc: { name: 'Bob', email: 'bob@example.com', age: 25, active: true } },
+  { id: 'user3', doc: { name: 'Charlie', email: 'charlie@example.com', age: 35, active: false } },
+])
+console.log(`Inserted ${count} documents`)  // 3
+
+// Delete multiple documents by ID
+const deleted = users.deleteMany(['user1', 'user3'])
+console.log(`Deleted ${deleted} documents`)  // 2
 ```
 
 ### Filter Operators

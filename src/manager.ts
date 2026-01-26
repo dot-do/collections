@@ -29,6 +29,10 @@ import { createCollection, initCollectionsSchema } from './collection'
  */
 export class Collections {
   private sql: SqlStorage
+  // Using `any` here is intentional: the cache stores heterogeneous collection types
+  // and TypeScript cannot track the relationship between collection names and their types.
+  // The type safety is enforced at the public API level via the generic collection<T>() method.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, Collection<any>>()
   private schemaInitialized = false
 

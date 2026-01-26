@@ -381,6 +381,151 @@ describe('Collection CRUD Operations', () => {
 })
 
 // ============================================================================
+// Bulk Operations Tests
+// ============================================================================
+
+describe('Bulk Operations', () => {
+  let users: Collection<User>
+
+  beforeEach(() => {
+    users = createMemoryCollection<User>()
+  })
+
+  describe('putMany()', () => {
+    it('should return 0 for empty array', () => {
+      const count = users.putMany([])
+      expect(count).toBe(0)
+      expect(users.count()).toBe(0)
+    })
+
+    it('should insert multiple documents', () => {
+      const count = users.putMany([
+        { id: 'u1', doc: { name: 'Alice', email: 'alice@test.com', age: 30, active: true } },
+        { id: 'u2', doc: { name: 'Bob', email: 'bob@test.com', age: 25, active: true } },
+        { id: 'u3', doc: { name: 'Charlie', email: 'charlie@test.com', age: 35, active: false } },
+      ])
+
+      expect(count).toBe(3)
+      expect(users.count()).toBe(3)
+      expect(users.get('u1')?.name).toBe('Alice')
+      expect(users.get('u2')?.name).toBe('Bob')
+      expect(users.get('u3')?.name).toBe('Charlie')
+    })
+
+    it('should update existing documents', () => {
+      // Insert initial documents
+      users.put('u1', { name: 'Alice', email: 'alice@test.com', age: 30, active: true })
+      users.put('u2', { name: 'Bob', email: 'bob@test.com', age: 25, active: true })
+
+      // Update with putMany
+      const count = users.putMany([
+        { id: 'u1', doc: { name: 'Alice Updated', email: 'alice.new@test.com', age: 31, active: false } },
+        { id: 'u3', doc: { name: 'Charlie', email: 'charlie@test.com', age: 35, active: true } },
+      ])
+
+      expect(count).toBe(2)
+      expect(users.count()).toBe(3)
+      expect(users.get('u1')?.name).toBe('Alice Updated')
+      expect(users.get('u1')?.age).toBe(31)
+      expect(users.get('u2')?.name).toBe('Bob') // Unchanged
+      expect(users.get('u3')?.name).toBe('Charlie') // New
+    })
+
+    it('should handle single document', () => {
+      const count = users.putMany([
+        { id: 'u1', doc: { name: 'Alice', email: 'alice@test.com', age: 30, active: true } },
+      ])
+
+      expect(count).toBe(1)
+      expect(users.count()).toBe(1)
+      expect(users.get('u1')?.name).toBe('Alice')
+    })
+
+    it('should handle large batch', () => {
+      const docs = Array.from({ length: 100 }, (_, i) => ({
+        id: `user${i}`,
+        doc: { name: `User ${i}`, email: `user${i}@test.com`, age: 20 + (i % 50), active: i % 2 === 0 },
+      }))
+
+      const count = users.putMany(docs)
+
+      expect(count).toBe(100)
+      expect(users.count()).toBe(100)
+      expect(users.get('user50')?.name).toBe('User 50')
+    })
+  })
+
+  describe('deleteMany()', () => {
+    beforeEach(() => {
+      users.put('u1', { name: 'Alice', email: 'alice@test.com', age: 30, active: true })
+      users.put('u2', { name: 'Bob', email: 'bob@test.com', age: 25, active: true })
+      users.put('u3', { name: 'Charlie', email: 'charlie@test.com', age: 35, active: false })
+      users.put('u4', { name: 'Diana', email: 'diana@test.com', age: 28, active: true })
+      users.put('u5', { name: 'Eve', email: 'eve@test.com', age: 22, active: false })
+    })
+
+    it('should return 0 for empty array', () => {
+      const count = users.deleteMany([])
+      expect(count).toBe(0)
+      expect(users.count()).toBe(5)
+    })
+
+    it('should delete multiple documents', () => {
+      const count = users.deleteMany(['u1', 'u3', 'u5'])
+
+      expect(count).toBe(3)
+      expect(users.count()).toBe(2)
+      expect(users.get('u1')).toBeNull()
+      expect(users.get('u2')?.name).toBe('Bob')
+      expect(users.get('u3')).toBeNull()
+      expect(users.get('u4')?.name).toBe('Diana')
+      expect(users.get('u5')).toBeNull()
+    })
+
+    it('should return 0 for non-existent IDs', () => {
+      const count = users.deleteMany(['nonexistent1', 'nonexistent2', 'nonexistent3'])
+
+      expect(count).toBe(0)
+      expect(users.count()).toBe(5)
+    })
+
+    it('should return correct count with mixed existing and non-existent IDs', () => {
+      const count = users.deleteMany(['u1', 'nonexistent', 'u3'])
+
+      expect(count).toBe(2)
+      expect(users.count()).toBe(3)
+      expect(users.get('u1')).toBeNull()
+      expect(users.get('u3')).toBeNull()
+    })
+
+    it('should handle single ID', () => {
+      const count = users.deleteMany(['u1'])
+
+      expect(count).toBe(1)
+      expect(users.count()).toBe(4)
+      expect(users.get('u1')).toBeNull()
+    })
+
+    it('should handle deleting all documents', () => {
+      const count = users.deleteMany(['u1', 'u2', 'u3', 'u4', 'u5'])
+
+      expect(count).toBe(5)
+      expect(users.count()).toBe(0)
+    })
+
+    it('should handle duplicate IDs gracefully', () => {
+      const count = users.deleteMany(['u1', 'u1', 'u2', 'u2', 'u2'])
+
+      // In memory implementation, duplicates after first delete won't count
+      // The exact count depends on implementation, but documents should be deleted
+      expect(users.get('u1')).toBeNull()
+      expect(users.get('u2')).toBeNull()
+      expect(users.count()).toBe(3)
+    })
+  })
+})
+
+// ============================================================================
 // Filter Operations Tests
 // ============================================================================
 

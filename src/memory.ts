@@ -2,6 +2,11 @@
  * Memory Collection
  *
  * In-memory implementation for testing without SQLite dependency
+ *
+ * @security Regex patterns ($regex operator) have the following limitations to prevent ReDoS attacks:
+ * - Maximum pattern length: 1000 characters
+ * - Patterns with nested quantifiers like (a+)+, (a*)*, etc. are rejected
+ * - Invalid regex patterns return no matches (fail closed)
  */
 
 import type { Collection, Filter, QueryOptions } from './types'
@@ -75,7 +80,18 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
       } else if (isRegexOperator(value)) {
         if (typeof docValue !== 'string') return false
         try {
-          const regex = new RegExp(value.$regex)
+          const pattern = value.$regex
+          // Security: Reject patterns that are too long (potential ReDoS)
+          if (pattern.length > 1000) {
+            return false
+          }
+          // Security: Reject patterns with excessive nested quantifiers (common ReDoS pattern)
+          // Detects patterns like (a+)+, (a*)+, (a+)*, etc.
+          const dangerousPattern = /(\([^)]*[+*][^)]*\))[+*]|\([^)]*\([^)]*[+*]/
+          if (dangerousPattern.test(pattern)) {
+            return false
+          }
+          const regex = new RegExp(pattern)
           if (!regex.test(docValue)) return false
         } catch {
           return false
@@ -199,6 +215,39 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
   clear(): number {
     const count = this.data.size
     this.data.clear()
+    return count
+  }
+
+  putMany(docs: Array<{ id: string; doc: T }>): number {
+    if (docs.length === 0) {
+      return 0
+    }
+
+    const now = Date.now()
+    for (const { id, doc } of docs) {
+      const existing = this.data.get(id)
+      this.data.set(id, {
+        doc: { ...doc },
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      })
+    }
+
+    return docs.length
+  }
+
+  deleteMany(ids: string[]): number {
+    if (ids.length === 0) {
+      return 0
+    }
+
+    let count = 0
+    for (const id of ids) {
+      if (this.data.delete(id)) {
+        count++
+      }
+    }
+
     return count
   }
 }

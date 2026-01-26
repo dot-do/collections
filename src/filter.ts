@@ -108,14 +108,24 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
         conditions.push(`CAST(json_extract(data, '$.${safeField}') AS REAL) <= ?`)
       } else if ('$in' in op && Array.isArray(op['$in'])) {
         const inValues = (op['$in'] as unknown[]).map((v) => toSqlValue(v))
-        const placeholders = inValues.map(() => '?').join(', ')
-        params.push(...inValues)
-        conditions.push(`json_extract(data, '$.${safeField}') IN (${placeholders})`)
+        if (inValues.length === 0) {
+          // Empty $in array: no values can match, always false
+          conditions.push('1=0')
+        } else {
+          const placeholders = inValues.map(() => '?').join(', ')
+          params.push(...inValues)
+          conditions.push(`json_extract(data, '$.${safeField}') IN (${placeholders})`)
+        }
       } else if ('$nin' in op && Array.isArray(op['$nin'])) {
         const ninValues = (op['$nin'] as unknown[]).map((v) => toSqlValue(v))
-        const placeholders = ninValues.map(() => '?').join(', ')
-        params.push(...ninValues)
-        conditions.push(`json_extract(data, '$.${safeField}') NOT IN (${placeholders})`)
+        if (ninValues.length === 0) {
+          // Empty $nin array: all values are "not in" empty set, always true
+          conditions.push('1=1')
+        } else {
+          const placeholders = ninValues.map(() => '?').join(', ')
+          params.push(...ninValues)
+          conditions.push(`json_extract(data, '$.${safeField}') NOT IN (${placeholders})`)
+        }
       } else if ('$exists' in op) {
         if (op['$exists']) {
           conditions.push(`json_extract(data, '$.${safeField}') IS NOT NULL`)

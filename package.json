@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
@@ -30,7 +31,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "release": "pnpm build && changeset publish",
+    "version": "changeset version"
   },
   "keywords": [
     "collections",
@@ -50,23 +53,30 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dot-do/collections.git"
+    "url": "git+https://github.com/dot-do/do-collections.git"
   },
   "bugs": {
-    "url": "https://github.com/dot-do/collections/issues"
+    "url": "https://github.com/dot-do/do-collections/issues"
   },
   "homepage": "https://collections.do",
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@cloudflare/workers-types": "^4.20250121.0",
+    "@types/sql.js": "^1.4.9",
+    "sql.js": "^1.13.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   },
   "peerDependencies": {
-    "@cloudflare/workers-types": "^4.0.0"
+    "@cloudflare/workers-types": "^4.0.0",
+    "@dotdo/do": "^0.1.0"
   },
   "peerDependenciesMeta": {
     "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@dotdo/do": {
       "optional": true
     }
   }
