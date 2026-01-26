@@ -76,3 +76,6 @@ export { Collections } from './manager'
 
 // Memory implementation
 export { MemoryCollection, createMemoryCollection } from './memory'
+
+// DO mixin for typed collections
+export { withCollections, type CollectionsProxy, type CollectionsDOInstance } from './do'
