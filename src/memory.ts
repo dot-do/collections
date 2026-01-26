@@ -9,7 +9,7 @@
  * - Invalid regex patterns return no matches (fail closed)
  */
 
-import type { SyncCollection, Filter, SyncQueryOptions } from '@dotdo/types/database'
+import type { SyncCollection, Filter, SyncQueryOptions } from './types'
 import {
   isEqOperator,
   isNeOperator,
@@ -145,12 +145,12 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return this._name
   }
 
-  get(id: string): T | undefined {
+  get(id: string): T | null {
     const entry = this.data.get(id)
-    return entry ? { ...entry.doc } : undefined
+    return entry ? { ...entry.doc } : null
   }
 
-  getMany(ids: string[]): Array<T | undefined> {
+  getMany(ids: string[]): Array<T | null> {
     return ids.map((id) => this.get(id))
   }
 
@@ -172,7 +172,7 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return this.data.has(id)
   }
 
-  query(filter: Filter<T>, options?: SyncQueryOptions): T[] {
+  find(filter?: Filter<T>, options?: SyncQueryOptions): T[] {
     let results: Array<{ id: string; doc: T; updatedAt: number }> = []
 
     for (const [id, entry] of this.data.entries()) {
@@ -210,12 +210,22 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
     return results.map((r) => r.doc)
   }
 
-  count(): number {
-    return this.data.size
+  count(filter?: Filter<T>): number {
+    if (!filter || Object.keys(filter).length === 0) {
+      return this.data.size
+    }
+    // Count matching documents
+    let count = 0
+    for (const [, entry] of this.data.entries()) {
+      if (evaluateFilter(entry.doc, filter)) {
+        count++
+      }
+    }
+    return count
   }
 
   list(options?: SyncQueryOptions): T[] {
-    return this.query({} as Filter<T>, options)
+    return this.find(undefined, options)
   }
 
   keys(): string[] {

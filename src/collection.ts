@@ -4,7 +4,7 @@
  * Create a collection bound to a SQL storage
  */
 
-import type { SyncCollection, Filter, SyncQueryOptions } from '@dotdo/types/database'
+import type { SyncCollection, Filter, SyncQueryOptions } from './types'
 import { compileFilter, validateFieldName } from './filter'
 
 // ============================================================================
@@ -106,15 +106,15 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       return collectionName
     },
 
-    get(id: string): T | undefined {
+    get(id: string): T | null {
       const rows = sql
         .exec<{ data: string }>(`SELECT data FROM _collections WHERE collection = ? AND id = ?`, collectionName, id)
         .toArray()
       const firstRow = rows[0]
-      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : undefined
+      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : null
     },
 
-    getMany(ids: string[]): Array<T | undefined> {
+    getMany(ids: string[]): Array<T | null> {
       if (ids.length === 0) {
         return []
       }
@@ -134,8 +134,8 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
         dataMap.set(row.id, JSON.parse(row.data))
       }
 
-      // Return in the same order as input IDs
-      return ids.map((id) => dataMap.get(id))
+      // Return in the same order as input IDs (null for missing)
+      return ids.map((id) => dataMap.get(id) ?? null)
     },
 
     put(id: string, doc: T): void {
@@ -169,7 +169,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       return rows.length > 0
     },
 
-    query(filter: Filter<T>, options?: SyncQueryOptions): T[] {
+    find(filter?: Filter<T>, options?: SyncQueryOptions): T[] {
       validateQueryOptions(options)
       const params: unknown[] = [collectionName]
       let whereClause = 'collection = ?'
@@ -203,15 +203,22 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       return rows.map((row) => JSON.parse(row.data))
     },
 
-    count(): number {
+    count(filter?: Filter<T>): number {
+      const params: unknown[] = [collectionName]
+      let whereClause = 'collection = ?'
+
+      if (filter && Object.keys(filter).length > 0) {
+        whereClause += ' AND ' + compileFilter(filter, params)
+      }
+
       const rows = sql
-        .exec<{ c: number }>(`SELECT COUNT(*) as c FROM _collections WHERE collection = ?`, collectionName)
+        .exec<{ c: number }>(`SELECT COUNT(*) as c FROM _collections WHERE ${whereClause}`, ...params)
         .toArray()
       return rows[0]?.c ?? 0
     },
 
     list(options?: SyncQueryOptions): T[] {
-      return this.query({} as Filter<T>, options)
+      return this.find(undefined, options)
     },
 
     keys(): string[] {
