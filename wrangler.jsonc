@@ -1,10 +1,50 @@
 {
-  // Wrangler configuration for Cloudflare Workers
-  // This file is included for compatibility date reference
-  // The @dotdo/collections package is a library, not a deployed worker
-
-  "$schema": "https://json.schemastore.org/wrangler",
-  "name": "collections",
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "collections-do",
+  "account_id": "b6641681fe423910342b9ffa1364c76d",
+  "main": "src/do.ts",
   "compatibility_date": "2026-01-25",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Service bindings
+  "services": [
+    {
+      "binding": "AUTH",
+      "service": "auth"
+    },
+    {
+      "binding": "OAUTH",
+      "service": "oauth"
+    },
+    {
+      "binding": "MCP",
+      "service": "mcp"
+    }
+  ],
+
+  // Durable Objects configuration
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COLLECTIONS",
+        "class_name": "CollectionsDO"
+      }
+    ]
+  },
+
+  // SQLite migrations for DO storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CollectionsDO"]
+    }
+  ],
+
+  // Routes - *collections.do/* matches both root domain and subdomains
+  "routes": [
+    {
+      "pattern": "*collections.do/*",
+      "zone_name": "collections.do"
+    }
+  ]
 }

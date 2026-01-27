@@ -30,6 +30,7 @@ export interface Env {
   COLLECTIONS: DurableObjectNamespace<CollectionsDO>
   AUTH: Fetcher  // Service binding to auth worker
   OAUTH: Fetcher // Service binding to oauth worker
+  MCP: Fetcher   // Service binding to mcp worker
 }
 
 /**
@@ -175,10 +176,11 @@ app.use('/*', async (c, next) => {
   const path = c.req.path
   const namespace = getNamespaceFromHost(c.req.header('host') || '')
 
-  // Skip auth for auth/OAuth routes (always) and root info (main domain only)
+  // Skip auth for auth/OAuth/MCP routes (always) and root info (main domain only)
   const publicPaths = ['/login', '/logout', '/callback', '/authorize', '/token', '/introspect', '/revoke']
   const wellKnownPaths = ['/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource', '/.well-known/jwks.json', '/.well-known/openid-configuration']
-  if (publicPaths.includes(path) || wellKnownPaths.includes(path)) {
+  // MCP endpoints handle their own auth via Bearer tokens
+  if (publicPaths.includes(path) || wellKnownPaths.includes(path) || path.startsWith('/mcp')) {
     return next()
   }
   if (!namespace && path === '/') {
@@ -304,6 +306,29 @@ app.post('/revoke', async (c) => {
       'Content-Type': c.req.header('Content-Type') || 'application/x-www-form-urlencoded',
     },
     body,
+  }))
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP endpoint - proxy to MCP worker with dynamic issuer
+// ═══════════════════════════════════════════════════════════════════════════
+
+// MCP HTTP endpoint for Model Context Protocol (JSON-RPC over HTTP)
+app.all('/mcp', async (c) => {
+  const issuer = getIssuer(c)
+  const url = new URL(c.req.url)
+
+  const mcpUrl = new URL('/mcp' + url.search, 'https://mcp.do')
+
+  // Forward the request to mcp.do with issuer header
+  return c.env.MCP.fetch(new Request(mcpUrl.toString(), {
+    method: c.req.method,
+    headers: new Headers([
+      ...c.req.raw.headers.entries(),
+      ['X-Issuer', issuer],
+      ['X-Forwarded-Host', url.host],
+    ]),
+    body: c.req.raw.body,
   }))
 })
 
