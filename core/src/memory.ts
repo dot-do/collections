@@ -22,6 +22,8 @@ import {
   isExistsOperator,
   isRegexOperator,
 } from './types'
+import { validateQueryOptions } from './validation'
+import { validateRegexPattern } from './filter'
 
 // ============================================================================
 // Memory Filter Evaluation
@@ -86,19 +88,15 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
         if (typeof docValue !== 'string') return false
         try {
           const pattern = value.$regex
-          // Security: Reject patterns that are too long (potential ReDoS)
-          if (pattern.length > 1000) {
-            return false
-          }
-          // Security: Reject patterns with excessive nested quantifiers (common ReDoS pattern)
-          // Detects patterns like (a+)+, (a*)+, (a+)*, etc.
-          const dangerousPattern = /(\([^)]*[+*][^)]*\))[+*]|\([^)]*\([^)]*[+*]/
-          if (dangerousPattern.test(pattern)) {
-            return false
-          }
+          // Security: Validate regex pattern to prevent ReDoS attacks
+          validateRegexPattern(pattern)
           const regex = new RegExp(pattern)
           if (!regex.test(docValue)) return false
-        } catch {
+        } catch (e) {
+          // Re-throw validation errors, but catch regex compilation errors
+          if (e instanceof Error && (e.message.includes('Regex pattern') || e.message.includes('dangerous'))) {
+            throw e
+          }
           return false
         }
       } else {
@@ -112,77 +110,6 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
     }
   }
   return true
-}
-
-// ============================================================================
-// Query Options Validation
-// ============================================================================
-
-/** Maximum allowed limit value to prevent excessive memory usage */
-const MAX_LIMIT = 10000
-
-/**
- * Check if a value is a valid non-negative integer.
- * Rejects NaN, Infinity, negative values, and non-integers.
- */
-function isValidNonNegativeInteger(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Number.isInteger(value) &&
-    value >= 0
-  )
-}
-
-/**
- * Check if a value is a valid positive integer.
- * Rejects NaN, Infinity, zero, negative values, and non-integers.
- */
-function isValidPositiveInteger(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Number.isInteger(value) &&
-    value > 0
-  )
-}
-
-/**
- * Validate query options.
- * @throws Error if offset is used without limit
- * @throws Error if limit is not a positive integer or exceeds maximum
- * @throws Error if offset is not a non-negative integer
- */
-function validateQueryOptions(options?: SyncQueryOptions): void {
-  if (!options) {
-    return
-  }
-
-  // Validate limit
-  if (options.limit !== undefined) {
-    if (!isValidPositiveInteger(options.limit)) {
-      throw new Error(
-        `Invalid limit: must be a positive integer. Received: ${String(options.limit)}`
-      )
-    }
-    if (options.limit > MAX_LIMIT) {
-      throw new Error(
-        `Invalid limit: must not exceed ${MAX_LIMIT}. Received: ${options.limit}`
-      )
-    }
-  }
-
-  // Validate offset
-  if (options.offset !== undefined) {
-    if (!isValidNonNegativeInteger(options.offset)) {
-      throw new Error(
-        `Invalid offset: must be a non-negative integer. Received: ${String(options.offset)}`
-      )
-    }
-    if (options.limit === undefined) {
-      throw new Error('offset requires limit to be specified')
-    }
-  }
 }
 
 // ============================================================================

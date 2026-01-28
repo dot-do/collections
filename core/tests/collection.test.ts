@@ -1433,6 +1433,44 @@ describe('Edge Cases', () => {
 // Error Cases Tests
 // ============================================================================
 
+// ============================================================================
+// ReDoS Protection Tests
+// ============================================================================
+
+describe('$regex ReDoS protection', () => {
+  let collection: Collection<User>
+
+  beforeEach(() => {
+    collection = createMemoryCollection<User>()
+    collection.put('u1', { name: 'Alice', email: 'alice@test.com', age: 30, active: true })
+    collection.put('u2', { name: 'Bob', email: 'bob@test.com', age: 25, active: true })
+  })
+
+  it('should reject patterns with nested quantifiers', () => {
+    expect(() => {
+      collection.find({ name: { $regex: '(a+)+' } })
+    }).toThrow(/dangerous|invalid|pattern/i)
+  })
+
+  it('should reject patterns over 1000 characters', () => {
+    const longPattern = 'a'.repeat(1001)
+    expect(() => {
+      collection.find({ name: { $regex: longPattern } })
+    }).toThrow(/too long|pattern/i)
+  })
+
+  it('should allow valid regex patterns', () => {
+    const results = collection.find({ name: { $regex: '^Alice' } })
+    // Should not throw
+    expect(results.length).toBe(1)
+    expect(results[0].name).toBe('Alice')
+  })
+})
+
+// ============================================================================
+// Error Cases Tests
+// ============================================================================
+
 describe('Error Cases', () => {
   describe('Invalid filter operators', () => {
     it('should handle unknown operator gracefully (treated as object match)', () => {

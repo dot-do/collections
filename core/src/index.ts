@@ -91,7 +91,17 @@ export {
 } from './types'
 
 // Filter utilities
-export { compileFilter, validateFieldName, escapeSql, toSqlValue } from './filter'
+export { compileFilter, validateFieldName, escapeSql, toSqlValue, validateRegexPattern } from './filter'
+
+// Validation utilities
+export {
+  MAX_LIMIT,
+  validateDocumentId,
+  validateDocument,
+  validateQueryOptions,
+  isValidNonNegativeInteger,
+  isValidPositiveInteger,
+} from './validation'
 
 // Collection factory
 export { createCollection, initCollectionsSchema } from './collection'

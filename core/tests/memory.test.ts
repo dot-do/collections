@@ -369,9 +369,10 @@ describe('Security: ReDoS protection', () => {
       // Create a pattern longer than 1000 characters
       const longPattern = 'a'.repeat(1001)
 
-      const results = collection.find({ text: { $regex: longPattern } })
-      // Should return no matches (pattern rejected)
-      expect(results.length).toBe(0)
+      // Should throw an error for pattern that is too long
+      expect(() => {
+        collection.find({ text: { $regex: longPattern } })
+      }).toThrow(/too long|pattern/i)
     })
 
     it('should accept regex patterns at the 1000 character limit', () => {
@@ -398,8 +399,9 @@ describe('Security: ReDoS protection', () => {
       collection.put('t1', { text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' })
 
       // Classic ReDoS pattern: (a+)+
-      const results = collection.find({ text: { $regex: '(a+)+' } })
-      expect(results.length).toBe(0)
+      expect(() => {
+        collection.find({ text: { $regex: '(a+)+' } })
+      }).toThrow(/dangerous|pattern/i)
     })
 
     it('should reject patterns with nested quantifiers like (a*)+', () => {
@@ -407,8 +409,9 @@ describe('Security: ReDoS protection', () => {
 
       collection.put('t1', { text: 'aaaaaaaaaa' })
 
-      const results = collection.find({ text: { $regex: '(a*)+' } })
-      expect(results.length).toBe(0)
+      expect(() => {
+        collection.find({ text: { $regex: '(a*)+' } })
+      }).toThrow(/dangerous|pattern/i)
     })
 
     it('should reject patterns with nested quantifiers like (a+)*', () => {
@@ -416,8 +419,9 @@ describe('Security: ReDoS protection', () => {
 
       collection.put('t1', { text: 'aaaaaaaaaa' })
 
-      const results = collection.find({ text: { $regex: '(a+)*' } })
-      expect(results.length).toBe(0)
+      expect(() => {
+        collection.find({ text: { $regex: '(a+)*' } })
+      }).toThrow(/dangerous|pattern/i)
     })
 
     it('should reject patterns with nested groups containing quantifiers', () => {
@@ -426,8 +430,9 @@ describe('Security: ReDoS protection', () => {
       collection.put('t1', { text: 'test' })
 
       // Pattern with nested groups: ((a+)b)+
-      const results = collection.find({ text: { $regex: '((a+)b)+' } })
-      expect(results.length).toBe(0)
+      expect(() => {
+        collection.find({ text: { $regex: '((a+)b)+' } })
+      }).toThrow(/dangerous|pattern/i)
     })
 
     it('should allow safe patterns without nested quantifiers', () => {
@@ -462,12 +467,13 @@ describe('Security: ReDoS protection', () => {
 
       const startTime = Date.now()
       // This pattern would hang without protection: (a+)+$
-      const results = collection.find({ text: { $regex: '(a+)+$' } })
+      expect(() => {
+        collection.find({ text: { $regex: '(a+)+$' } })
+      }).toThrow(/dangerous|pattern/i)
       const elapsed = Date.now() - startTime
 
-      // Should complete quickly (rejected pattern or fast execution)
+      // Should complete quickly (rejected pattern)
       expect(elapsed).toBeLessThan(1000)
-      expect(results.length).toBe(0)
     })
 
     it('should not hang on polynomial backtracking pattern', () => {
@@ -477,11 +483,12 @@ describe('Security: ReDoS protection', () => {
 
       const startTime = Date.now()
       // Pattern that could cause polynomial time: (a*)*b
-      const results = collection.find({ text: { $regex: '(a*)*b' } })
+      expect(() => {
+        collection.find({ text: { $regex: '(a*)*b' } })
+      }).toThrow(/dangerous|pattern/i)
       const elapsed = Date.now() - startTime
 
       expect(elapsed).toBeLessThan(1000)
-      expect(results.length).toBe(0)
     })
   })
 })

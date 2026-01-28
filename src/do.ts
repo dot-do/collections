@@ -10,6 +10,7 @@
 
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 import { createCollection, initCollectionsSchema } from '@dotdo/collections'
 import type { SyncCollection } from '@dotdo/collections/types'
@@ -33,6 +34,14 @@ export interface Env {
   OAUTH: Fetcher // Service binding to oauth worker
   MCP: Fetcher   // Service binding to mcp worker
 }
+
+/**
+ * Type-safe Hono context for Collections routes
+ */
+type CollectionsContext = Context<{
+  Bindings: Env
+  Variables: { user: AuthUser | null; newCookies?: string[] }
+}>
 
 /**
  * Managed Collections Durable Object
@@ -133,6 +142,40 @@ export class CollectionsDO extends DurableObject<Env> {
   // HTTP fetch handler (for backwards compatibility / direct browser access)
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * Validate pagination query parameters from URL search params
+   * Returns validated { limit, offset } or a 400 error Response
+   */
+  private validatePagination(url: URL): { limit: number; offset: number } | Response {
+    const limitStr = url.searchParams.get('limit')
+    const offsetStr = url.searchParams.get('offset')
+
+    const limit = limitStr ? parseInt(limitStr, 10) : 100
+    const offset = offsetStr ? parseInt(offsetStr, 10) : 0
+
+    if (isNaN(limit) || limit < 1 || limit > 10000) {
+      return Response.json({ error: 'limit must be a positive integer between 1 and 10000' }, { status: 400 })
+    }
+
+    if (isNaN(offset) || offset < 0) {
+      return Response.json({ error: 'offset must be a non-negative integer' }, { status: 400 })
+    }
+
+    return { limit, offset }
+  }
+
+  /**
+   * Parse JSON body from request with error handling
+   * Returns parsed body or a 400 error Response for invalid JSON
+   */
+  private async parseJsonBody<T>(request: Request): Promise<T | Response> {
+    try {
+      return await request.json() as T
+    } catch {
+      return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
@@ -162,8 +205,12 @@ export class CollectionsDO extends DurableObject<Env> {
     const collectionMatch = path.match(/^\/([^/]+)$/)
     if (collectionMatch && method === 'GET') {
       const collection = collectionMatch[1]!
-      const limit = parseInt(url.searchParams.get('limit') || '100')
-      const offset = parseInt(url.searchParams.get('offset') || '0')
+
+      // Validate pagination parameters
+      const pagination = this.validatePagination(url)
+      if (pagination instanceof Response) return pagination
+      const { limit, offset } = pagination
+
       const docs = this.listDocs(collection, { limit, offset })
       return Response.json({
         $id: `${baseUrl}/${collection}`,
@@ -189,7 +236,12 @@ export class CollectionsDO extends DurableObject<Env> {
     // Route: PUT /:collection/:id
     if (docMatch && method === 'PUT') {
       const [, collection, id] = docMatch
-      const doc = await request.json() as Record<string, unknown>
+      const parsed = await this.parseJsonBody<Record<string, unknown>>(request)
+      if (parsed instanceof Response) return parsed
+      const doc = parsed
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+        return Response.json({ error: 'Body must be a JSON object' }, { status: 400 })
+      }
       const result = this.putDoc(collection!, id!, doc)
       return Response.json(result, { status: 201 })
     }
@@ -206,7 +258,9 @@ export class CollectionsDO extends DurableObject<Env> {
     const queryMatch = path.match(/^\/([^/]+)\/query$/)
     if (queryMatch && method === 'POST') {
       const collection = queryMatch[1]!
-      const body = await request.json() as { filter?: Record<string, unknown>; limit?: number; offset?: number }
+      const parsed = await this.parseJsonBody<{ filter?: Record<string, unknown>; limit?: number; offset?: number }>(request)
+      if (parsed instanceof Response) return parsed
+      const body = parsed
       const options: { limit?: number; offset?: number } = {}
       if (body.limit !== undefined) options.limit = body.limit
       if (body.offset !== undefined) options.offset = body.offset
@@ -296,7 +350,9 @@ interface CachedApiKey {
   expiresAt: number
 }
 
-// In-memory cache for validated API keys (keyed by hash of API key)
+// API key validation cache with automatic cleanup
+// Expired entries are cleaned up probabilistically (1% of requests)
+// to avoid memory leaks while minimizing overhead
 const apiKeyCache: Map<string, CachedApiKey> = new Map()
 const API_KEY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
@@ -350,6 +406,17 @@ app.use('/*', async (c, next) => {
   const authHeader = c.req.header('Authorization')
   if (authHeader?.startsWith('Bearer sk_')) {
     const apiKey = authHeader.slice(7) // Remove 'Bearer '
+
+    // Clean up expired entries (do this probabilistically, not every request)
+    if (Math.random() < 0.01) {
+      // 1% of requests trigger cleanup
+      const now = Date.now()
+      for (const [key, value] of apiKeyCache.entries()) {
+        if (value.expiresAt <= now) {
+          apiKeyCache.delete(key)
+        }
+      }
+    }
 
     // Hash the API key for cache lookup
     const keyHash = await hashApiKey(apiKey)
@@ -567,7 +634,7 @@ app.use('/*', async (c, next) => {
 // MCP OAuth 2.1 endpoints - proxy to OAuth worker with dynamic issuer
 // ═══════════════════════════════════════════════════════════════════════════
 
-function getIssuer(c: any): string {
+function getIssuer(c: CollectionsContext): string {
   const host = c.req.header('host') || 'collections.do'
   const protocol = c.req.header('x-forwarded-proto') || 'https'
   return `${protocol}://${host.split(':')[0]}`
@@ -909,7 +976,11 @@ function parseObjectId(str: string): string | null {
   return null
 }
 
-async function forwardToNamespace(c: any, namespace: string, path: string): Promise<Response> {
+async function forwardToNamespace(
+  c: CollectionsContext,
+  namespace: string,
+  path: string
+): Promise<Response> {
   const user = c.var.user!
 
   let doId

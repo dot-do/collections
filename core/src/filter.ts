@@ -58,6 +58,27 @@ export function toSqlValue(value: unknown): unknown {
 }
 
 // ============================================================================
+// Regex Pattern Validation (ReDoS Protection)
+// ============================================================================
+
+/**
+ * Validate a regex pattern to prevent ReDoS attacks.
+ *
+ * @param pattern - The regex pattern to validate
+ * @throws Error if pattern is too long or contains dangerous nested quantifiers
+ */
+export function validateRegexPattern(pattern: string): void {
+  if (pattern.length > 1000) {
+    throw new Error('Regex pattern too long (max 1000 characters)')
+  }
+  // Detect dangerous nested quantifiers like (a+)+, (a*)+, (a+)*, etc.
+  const dangerousPattern = /(\([^)]*[+*][^)]*\))[+*]|\([^)]*\([^)]*[+*]/
+  if (dangerousPattern.test(pattern)) {
+    throw new Error('Regex pattern contains dangerous nested quantifiers')
+  }
+}
+
+// ============================================================================
 // Filter Compiler
 // ============================================================================
 
@@ -139,7 +160,12 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
           conditions.push(`json_extract(data, '$.${safeField}') IS NULL`)
         }
       } else if ('$regex' in op) {
-        params.push(op['$regex'])
+        const pattern = op['$regex']
+        // Validate pattern to prevent ReDoS attacks
+        if (typeof pattern === 'string') {
+          validateRegexPattern(pattern)
+        }
+        params.push(pattern)
         conditions.push(`json_extract(data, '$.${safeField}') REGEXP ?`)
       } else if ('$contains' in op) {
         // $contains: check if string contains substring or array contains value
