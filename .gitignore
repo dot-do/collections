@@ -30,3 +30,4 @@ coverage/
 # Wrangler
 .wrangler/
 .dev.vars
+worker-configuration.d.ts
