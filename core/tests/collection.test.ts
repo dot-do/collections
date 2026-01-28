@@ -921,6 +921,162 @@ describe('Query Options', () => {
       expect(results[0].name).toBe('Alpha')
     })
   })
+
+  describe('limit validation', () => {
+    it('should accept valid positive integer limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      const results = users.list({ limit: 1 })
+      expect(results.length).toBe(1)
+    })
+
+    it('should reject limit of 0', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 0 })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should reject negative limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: -1 })).toThrow('Invalid limit: must be a positive integer')
+      expect(() => users.list({ limit: -100 })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should reject NaN limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: NaN })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should reject Infinity limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: Infinity })).toThrow('Invalid limit: must be a positive integer')
+      expect(() => users.list({ limit: -Infinity })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should reject non-integer limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 1.5 })).toThrow('Invalid limit: must be a positive integer')
+      expect(() => users.list({ limit: 0.1 })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should reject limit exceeding maximum (10000)', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 10001 })).toThrow('Invalid limit: must not exceed 10000')
+      expect(() => users.list({ limit: 100000 })).toThrow('Invalid limit: must not exceed 10000')
+    })
+
+    it('should accept limit at maximum (10000)', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      const results = users.list({ limit: 10000 })
+      expect(results.length).toBe(1)
+    })
+  })
+
+  describe('offset validation', () => {
+    it('should accept valid non-negative integer offset', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+      users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: true })
+
+      const results = users.find({}, { sort: 'name', limit: 10, offset: 1 })
+      expect(results.length).toBe(1)
+      expect(results[0].name).toBe('Bob')
+    })
+
+    it('should accept offset of 0', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      const results = users.list({ limit: 10, offset: 0 })
+      expect(results.length).toBe(1)
+    })
+
+    it('should reject negative offset', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 10, offset: -1 })).toThrow('Invalid offset: must be a non-negative integer')
+      expect(() => users.list({ limit: 10, offset: -100 })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+
+    it('should reject NaN offset', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 10, offset: NaN })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+
+    it('should reject Infinity offset', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 10, offset: Infinity })).toThrow('Invalid offset: must be a non-negative integer')
+      expect(() => users.list({ limit: 10, offset: -Infinity })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+
+    it('should reject non-integer offset', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ limit: 10, offset: 1.5 })).toThrow('Invalid offset: must be a non-negative integer')
+      expect(() => users.list({ limit: 10, offset: 0.1 })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+
+    it('should reject offset without limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.list({ offset: 1 })).toThrow('offset requires limit to be specified')
+    })
+  })
+
+  describe('combined limit and offset validation', () => {
+    it('should validate limit before checking offset requires limit', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      // Invalid limit should throw limit error even with valid offset
+      expect(() => users.list({ limit: -1, offset: 0 })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should validate both limit and offset when both are invalid', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      // Limit is validated first, so it should throw limit error
+      expect(() => users.list({ limit: NaN, offset: NaN })).toThrow('Invalid limit: must be a positive integer')
+    })
+
+    it('should work correctly with find() method', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.find({}, { limit: -1 })).toThrow('Invalid limit: must be a positive integer')
+      expect(() => users.find({}, { limit: 10, offset: -1 })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+
+    it('should work correctly with query() method', () => {
+      const users = createMemoryCollection<User>()
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+
+      expect(() => users.query({}, { limit: -1 })).toThrow('Invalid limit: must be a positive integer')
+      expect(() => users.query({}, { limit: 10, offset: -1 })).toThrow('Invalid offset: must be a non-negative integer')
+    })
+  })
 })
 
 // ============================================================================

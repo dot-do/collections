@@ -94,6 +94,8 @@
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20250121.0",
     "@types/node": "^25.0.10",
+    "@types/sql.js": "^1.4.9",
+    "sql.js": "^1.13.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8",

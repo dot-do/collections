@@ -316,7 +316,7 @@ async function hashApiKey(apiKey: string): Promise<string> {
 // Worker entry point
 // ═══════════════════════════════════════════════════════════════════════════
 
-const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser | null } }>()
+const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser | null; newCookies?: string[] } }>()
 
 app.use('*', cors())
 
@@ -533,7 +533,7 @@ app.use('/*', async (c, next) => {
           }
 
           // Store cookies to set in response
-          c.set('newCookies' as any, newCookies)
+          c.set('newCookies', newCookies)
 
           return next()
         }
@@ -556,7 +556,7 @@ app.use('/*', async (c, next) => {
   await next()
 
   // If we refreshed tokens, add Set-Cookie headers to response
-  const newCookies = c.get('newCookies' as any) as string[] | undefined
+  const newCookies = c.get('newCookies')
   if (newCookies && newCookies.length > 0) {
     const response = c.res
     newCookies.forEach(cookie => response.headers.append('Set-Cookie', cookie))

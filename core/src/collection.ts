@@ -31,14 +31,94 @@ function validateDocument(doc: unknown): asserts doc is Record<string, unknown> 
   }
 }
 
+/** Maximum allowed limit value to prevent excessive memory usage */
+const MAX_LIMIT = 10000
+
+/**
+ * Check if a value is a valid non-negative integer.
+ * Rejects NaN, Infinity, negative values, and non-integers.
+ */
+function isValidNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+  )
+}
+
+/**
+ * Check if a value is a valid positive integer.
+ * Rejects NaN, Infinity, zero, negative values, and non-integers.
+ */
+function isValidPositiveInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value > 0
+  )
+}
+
 /**
  * Validate query options.
  * @throws Error if offset is used without limit
+ * @throws Error if limit is not a positive integer or exceeds maximum
+ * @throws Error if offset is not a non-negative integer
  */
 function validateQueryOptions(options?: SyncQueryOptions): void {
-  if (options?.offset !== undefined && options?.limit === undefined) {
-    throw new Error('offset requires limit to be specified')
+  if (!options) {
+    return
   }
+
+  // Validate limit
+  if (options.limit !== undefined) {
+    if (!isValidPositiveInteger(options.limit)) {
+      throw new Error(
+        `Invalid limit: must be a positive integer. Received: ${String(options.limit)}`
+      )
+    }
+    if (options.limit > MAX_LIMIT) {
+      throw new Error(
+        `Invalid limit: must not exceed ${MAX_LIMIT}. Received: ${options.limit}`
+      )
+    }
+  }
+
+  // Validate offset
+  if (options.offset !== undefined) {
+    if (!isValidNonNegativeInteger(options.offset)) {
+      throw new Error(
+        `Invalid offset: must be a non-negative integer. Received: ${String(options.offset)}`
+      )
+    }
+    if (options.limit === undefined) {
+      throw new Error('offset requires limit to be specified')
+    }
+  }
+}
+
+// ============================================================================
+// SQL Helpers
+// ============================================================================
+
+/**
+ * Insert or update a document in the collection.
+ * Uses ON CONFLICT to perform an upsert operation.
+ */
+function upsertDocument(sql: SqlStorage, collectionName: string, id: string, data: string, now: number): void {
+  sql.exec(
+    `INSERT INTO _collections (collection, id, data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
+    collectionName,
+    id,
+    data,
+    now,
+    now,
+    data,
+    now
+  )
 }
 
 // ============================================================================
@@ -111,7 +191,15 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
         .exec<{ data: string }>(`SELECT data FROM _collections WHERE collection = ? AND id = ?`, collectionName, id)
         .toArray()
       const firstRow = rows[0]
-      return rows.length > 0 && firstRow ? JSON.parse(firstRow.data) : null
+      if (rows.length > 0 && firstRow) {
+        try {
+          return JSON.parse(firstRow.data)
+        } catch (e) {
+          console.warn(`Corrupted data for document "${id}" in collection "${collectionName}":`, e)
+          return null
+        }
+      }
+      return null
     },
 
     getMany(ids: string[]): Array<T | null> {
@@ -131,7 +219,12 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       // Create a map for O(1) lookup
       const dataMap = new Map<string, T>()
       for (const row of rows) {
-        dataMap.set(row.id, JSON.parse(row.data))
+        try {
+          dataMap.set(row.id, JSON.parse(row.data))
+        } catch (e) {
+          console.warn(`Corrupted data for document "${row.id}" in collection "${collectionName}":`, e)
+          // Skip corrupted documents - they will return null
+        }
       }
 
       // Return in the same order as input IDs (null for missing)
@@ -143,18 +236,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       validateDocument(doc)
       const data = JSON.stringify(doc)
       const now = Date.now()
-      sql.exec(
-        `INSERT INTO _collections (collection, id, data, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
-        collectionName,
-        id,
-        data,
-        now,
-        now,
-        data,
-        now
-      )
+      upsertDocument(sql, collectionName, id, data, now)
     },
 
     delete(id: string): boolean {
@@ -200,7 +282,16 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       }
 
       const rows = sql.exec<{ id: string; data: string }>(queryStr, ...params).toArray()
-      return rows.map((row) => ({ id: row.id, ...JSON.parse(row.data) }))
+      const results: T[] = []
+      for (const row of rows) {
+        try {
+          results.push({ id: row.id, ...JSON.parse(row.data) } as T)
+        } catch (e) {
+          console.warn(`Corrupted data for document "${row.id}" in collection "${collectionName}":`, e)
+          // Skip corrupted documents
+        }
+      }
+      return results
     },
 
     query(filter: Filter<T>, options?: SyncQueryOptions): T[] {
@@ -249,18 +340,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
         validateDocumentId(id)
         validateDocument(doc)
         const data = JSON.stringify(doc)
-        sql.exec(
-          `INSERT INTO _collections (collection, id, data, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(collection, id) DO UPDATE SET data = ?, updated_at = ?`,
-          collectionName,
-          id,
-          data,
-          now,
-          now,
-          data,
-          now
-        )
+        upsertDocument(sql, collectionName, id, data, now)
         count++
       }
 

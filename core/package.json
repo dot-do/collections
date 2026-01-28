@@ -30,7 +30,8 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "check:publish": "pnpm typecheck && pnpm test && pnpm build",
+    "prepublishOnly": "pnpm check:publish"
   },
   "keywords": [
     "collections",
