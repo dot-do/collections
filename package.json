@@ -38,6 +38,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:all": "pnpm test && cd core && pnpm test",
+    "test:e2e": "vitest run --config e2e/vitest.config.ts",
+    "test:e2e:workers": "vitest run --config e2e/workers/vitest.config.ts",
     "typecheck": "wrangler types && tsc --noEmit",
     "typecheck:core": "cd core && tsc --noEmit",
     "typecheck:all": "pnpm typecheck:core && pnpm typecheck",
@@ -89,6 +91,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20250121.0",
     "@types/node": "^25.0.10",
     "tsup": "^8.0.0",

@@ -1,0 +1,8 @@
+# Wrangler config for e2e Workers tests
+# This is used by vitest-pool-workers to run tests in workerd runtime
+
+name = "collections-e2e-tests"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Bindings are injected via vitest config from environment variables
