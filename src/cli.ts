@@ -95,8 +95,6 @@ async function main() {
       case 'me': {
         const me = await client.me()
         console.log('User:', me.user)
-        console.log('Default Namespace:', me.defaultNamespace)
-        console.log('Namespace URL:', me.namespaceUrl)
         break
       }
 

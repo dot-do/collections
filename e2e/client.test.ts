@@ -57,7 +57,6 @@ describe('collections.do client e2e', () => {
       const me = await client.me()
       expect(me.user).toBeDefined()
       expect(me.user.id).toBeDefined()
-      expect(me.defaultNamespace).toBeDefined()
     })
   })
 

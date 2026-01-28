@@ -38,7 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:all": "pnpm test && cd core && pnpm test",
-    "test:e2e": "vitest run --config e2e/vitest.config.ts",
+    "test:e2e": "node --env-file=.env node_modules/vitest/vitest.mjs run --config e2e/vitest.config.ts",
     "test:e2e:workers": "vitest run --config e2e/workers/vitest.config.ts",
     "typecheck": "wrangler types && tsc --noEmit",
     "typecheck:core": "cd core && tsc --noEmit",

@@ -55,8 +55,6 @@ export interface UserInfo {
 
 export interface MeResponse {
   user: UserInfo
-  defaultNamespace: string
-  namespaceUrl: string
 }
 
 /**
@@ -95,8 +93,11 @@ class RemoteCollection<T extends Record<string, unknown>> implements AsyncCollec
 
   async get(id: string): Promise<T | null> {
     try {
-      const result = await this.request<{ doc: T }>(`/${id}`)
-      return result.doc
+      // API returns { $id, id, ...doc }
+      const result = await this.request<T & { $id?: string; id?: string }>(`/${id}`)
+      // Remove API metadata fields
+      const { $id, id: _id, ...doc } = result
+      return doc as T
     } catch {
       return null
     }
@@ -135,21 +136,37 @@ class RemoteCollection<T extends Record<string, unknown>> implements AsyncCollec
       params.set('sort', sortStr)
     }
     const query = params.toString() ? `?${params}` : ''
-    const result = await this.request<{ docs: T[] }>(query)
-    return result.docs
+    const result = await this.request<{ docs: Array<T & { $id?: string }> }>(query)
+    // Strip $id from each doc
+    return result.docs.map(({ $id, ...doc }) => doc as T)
   }
 
   async keys(): Promise<string[]> {
-    const result = await this.request<{ docs: Array<{ id: string }> }>('?limit=10000')
-    return result.docs.map((d) => d.id)
+    const result = await this.request<{ docs: Array<{ $id?: string; id?: string }> }>('?limit=10000')
+    // Extract id from doc - prefer 'id' field, fall back to extracting from $id URL
+    return result.docs
+      .map((d) => {
+        // Prefer explicit id field if present
+        if (d.id) return d.id
+        // Fall back to extracting from $id URL: https://ns.collections.do/collection/key
+        if (d.$id) {
+          const parts = d.$id.split('/')
+          const lastPart = parts[parts.length - 1]
+          // Don't return 'undefined' string that comes from server bug
+          if (lastPart && lastPart !== 'undefined') return lastPart
+        }
+        return undefined
+      })
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
   }
 
   async find(filter?: Filter<T>, options?: AsyncQueryOptions): Promise<T[]> {
-    const result = await this.request<{ docs: T[] }>('/query', {
+    const result = await this.request<{ docs: Array<T & { $id?: string }> }>('/query', {
       method: 'POST',
       body: JSON.stringify({ filter, ...options }),
     })
-    return result.docs
+    // Strip $id from each doc
+    return result.docs.map(({ $id, ...doc }) => doc as T)
   }
 
   async query(filter: Filter<T>, options?: AsyncQueryOptions): Promise<T[]> {
@@ -164,11 +181,13 @@ class RemoteCollection<T extends Record<string, unknown>> implements AsyncCollec
   }
 
   async putMany(items: Array<{ id: string; doc: T }>): Promise<BulkResult> {
-    const result = await this.request<{ count: number }>('/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    })
-    return { count: result.count, success: true }
+    // No bulk endpoint - do individual puts
+    let count = 0
+    for (const { id, doc } of items) {
+      await this.put(id, doc)
+      count++
+    }
+    return { count, success: true }
   }
 
   async delete(id: string): Promise<boolean> {

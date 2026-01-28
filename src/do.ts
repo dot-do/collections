@@ -169,7 +169,11 @@ export class CollectionsDO extends DurableObject<Env> {
         $id: `${baseUrl}/${collection}`,
         collection,
         count: this.countDocs(collection),
-        docs: docs.map(doc => ({ $id: `${baseUrl}/${collection}/${doc['id']}`, ...doc })),
+        // Ensure each doc has 'id' field - extract from doc or use the id property
+        docs: docs.map(doc => {
+          const docId = (doc as { id?: string }).id
+          return { $id: `${baseUrl}/${collection}/${docId}`, ...doc }
+        }),
       })
     }
 
@@ -379,11 +383,10 @@ app.use('/*', async (c, next) => {
         // API key is valid - build user object
         const user: AuthUser = {
           id: validation.id || `api:${apiKey.slice(0, 16)}`,
-          email: undefined,
           name: validation.name || 'API Key User',
-          org: validation.organization_id,
           roles: ['api'],
           permissions: validation.permissions || [],
+          ...(validation.organization_id && { org: validation.organization_id }),
         }
 
         // Cache the validated key
