@@ -402,6 +402,36 @@ app.use('/*', async (c, next) => {
     return c.json({ error: 'Invalid API key' }, 401)
   }
 
+  // Check for JWT in Authorization header (Bearer token that's NOT an API key)
+  if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer sk_')) {
+    const token = authHeader.slice(7) // Remove 'Bearer '
+
+    // Validate JWT looks correct
+    if (isValidJwtFormat(token)) {
+      // Verify JWT via AUTH service (same as cookie auth)
+      const response = await c.env.AUTH.fetch(new Request('https://auth/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request: {
+            url: c.req.url,
+            headers: { ...Object.fromEntries(c.req.raw.headers.entries()), 'Cookie': `auth=${token}` },
+          },
+        }),
+      }))
+
+      const { user } = await response.json() as { user: AuthUser | null }
+
+      if (user) {
+        c.set('user', user)
+        return next()
+      }
+    }
+
+    // JWT validation failed
+    return c.json({ error: 'Invalid token' }, 401)
+  }
+
   // Check for invalid auth cookie and clear it
   const cookies = c.req.header('Cookie')
   const authCookie = getCookie(cookies, 'auth')
