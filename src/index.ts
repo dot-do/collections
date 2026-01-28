@@ -1,106 +1,56 @@
 /**
- * @dotdo/collections
+ * collections.do - Managed Document Collections Service
  *
- * MongoDB-style document store on DO SQLite
+ * A managed service for MongoDB-style document collections on Cloudflare Durable Objects.
+ * Provides user-specific collections with authentication via oauth.do.
  *
- * Simple wrapper that provides:
- * - Named collections (like MongoDB)
- * - get/put/delete operations
- * - MongoDB-style filter queries
- * - All stored in a single SQLite table
- *
- * Billing: Each document is 1 row. Queries read only matching rows.
- *
- * @example
+ * @example Client usage
  * ```typescript
- * // Inside DO
- * export class MyDO extends DurableObject {
- *   users = createCollection<User>(this.ctx.storage.sql, 'users')
+ * import { Collections } from 'collections.do/client'
  *
- *   async createUser(data: User) {
- *     await this.users.put(data.id, data)
- *   }
+ * const collections = new Collections({
+ *   baseUrl: 'https://collections.do',
+ *   token: 'your-oauth-token', // from oauth.do
+ * })
  *
- *   async getActiveUsers() {
- *     return this.users.query({ active: true, role: 'admin' })
- *   }
- * }
+ * // Access a namespace and collection
+ * // Namespace is accessed via subdomain: https://myapp.collections.do
+ * const users = collections.namespace('myapp').collection<User>('users')
+ * await users.put('user1', { name: 'Alice', email: 'alice@example.com' })
+ * const user = await users.get('user1')
  * ```
+ *
+ * ## API Endpoints
+ *
+ * Root domain (collections.do):
+ * - `GET /` - API info (public)
+ * - `GET /me` - Your user info and namespaces (authenticated)
+ *
+ * Namespace subdomain (<namespace>.collections.do):
+ * - `GET /` - List collections in namespace
+ * - `GET /:collection` - List documents
+ * - `GET /:collection/:id` - Get document
+ * - `PUT /:collection/:id` - Create/update document
+ * - `DELETE /:collection/:id` - Delete document
+ * - `POST /:collection/query` - Query with filter
+ * - `POST /:collection/bulk` - Bulk operations
+ * - `DELETE /:collection` - Clear collection
  *
  * @packageDocumentation
  */
 
-// Types from @dotdo/types/database
+export { CollectionsDO } from './do'
+export type { Env } from './do'
+
+// Re-export core types for convenience
 export type {
-  // Main collection interfaces
   SyncCollection,
+  AsyncCollection,
   SyncReadCollection,
   SyncWriteCollection,
-  AsyncCollection,
   AsyncReadCollection,
   AsyncWriteCollection,
-  // Filter types
   Filter,
-  FilterOperator,
-  FilterValue,
-  // Query options
   SyncQueryOptions,
   AsyncQueryOptions,
-  // Bulk operations
-  BulkResult,
-  BulkResultError,
-  // Legacy types (deprecated)
-  CollectionFilter,
-  CollectionFilterOperator,
-  CollectionFieldFilter,
-} from '@dotdo/types/database'
-
-// Local type aliases (deprecated - use @dotdo/types/database directly)
-export type {
-  Collection,
-  ReadCollection,
-  WriteCollection,
-  QueryOptions,
-  // Filter operator interfaces (for type guards)
-  EqOperator,
-  NeOperator,
-  GtOperator,
-  GteOperator,
-  LtOperator,
-  LteOperator,
-  InOperator,
-  NinOperator,
-  ExistsOperator,
-  RegexOperator,
-  FilterOperatorObject,
-} from './types'
-
-// Type guards
-export {
-  isEqOperator,
-  isNeOperator,
-  isGtOperator,
-  isGteOperator,
-  isLtOperator,
-  isLteOperator,
-  isInOperator,
-  isNinOperator,
-  isExistsOperator,
-  isRegexOperator,
-  isFilterOperator,
-} from './types'
-
-// Filter utilities
-export { compileFilter, validateFieldName, escapeSql, toSqlValue } from './filter'
-
-// Collection factory
-export { createCollection, initCollectionsSchema } from './collection'
-
-// Collections manager
-export { Collections } from './manager'
-
-// Memory implementation
-export { MemoryCollection, createMemoryCollection } from './memory'
-
-// DO mixin for typed collections
-export { withCollections, type CollectionsProxy, type CollectionsDOInstance } from './do'
+} from '@dotdo/collections/types'
