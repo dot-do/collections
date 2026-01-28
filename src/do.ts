@@ -408,23 +408,25 @@ app.use('/*', async (c, next) => {
 
     // Validate JWT looks correct
     if (isValidJwtFormat(token)) {
-      // Verify JWT via AUTH service (same as cookie auth)
+      // Verify JWT via AUTH service (lightweight, handles JWKS caching)
       const response = await c.env.AUTH.fetch(new Request('https://auth/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           request: {
             url: c.req.url,
-            headers: { ...Object.fromEntries(c.req.raw.headers.entries()), 'Cookie': `auth=${token}` },
+            headers: { 'Authorization': authHeader },
           },
         }),
       }))
 
-      const { user } = await response.json() as { user: AuthUser | null }
+      if (response.ok) {
+        const { user } = await response.json() as { user: AuthUser | null }
 
-      if (user) {
-        c.set('user', user)
-        return next()
+        if (user) {
+          c.set('user', user)
+          return next()
+        }
       }
     }
 
