@@ -284,6 +284,31 @@ function getNamespaceFromHost(host: string): string | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// API Key Cache
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface CachedApiKey {
+  user: AuthUser
+  expiresAt: number
+}
+
+// In-memory cache for validated API keys (keyed by hash of API key)
+const apiKeyCache: Map<string, CachedApiKey> = new Map()
+const API_KEY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+/**
+ * Hash an API key for cache lookup
+ * Uses a simple but fast hash - security comes from HTTPS and short TTL
+ */
+async function hashApiKey(apiKey: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(apiKey)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Worker entry point
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -322,7 +347,18 @@ app.use('/*', async (c, next) => {
   if (authHeader?.startsWith('Bearer sk_')) {
     const apiKey = authHeader.slice(7) // Remove 'Bearer '
 
-    // Validate API key via oauth.do validate-api-key endpoint
+    // Hash the API key for cache lookup
+    const keyHash = await hashApiKey(apiKey)
+
+    // Check cache first
+    const cached = apiKeyCache.get(keyHash)
+    if (cached && cached.expiresAt > Date.now()) {
+      // Cache hit - use cached user
+      c.set('user', cached.user)
+      return next()
+    }
+
+    // Cache miss - validate via oauth.do
     const validateResponse = await c.env.OAUTH.fetch(new Request('https://oauth.do/validate-api-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -340,20 +376,29 @@ app.use('/*', async (c, next) => {
       }
 
       if (validation.valid) {
-        // API key is valid - set user from validation response
-        c.set('user', {
+        // API key is valid - build user object
+        const user: AuthUser = {
           id: validation.id || `api:${apiKey.slice(0, 16)}`,
           email: undefined,
           name: validation.name || 'API Key User',
           org: validation.organization_id,
           roles: ['api'],
           permissions: validation.permissions || [],
+        }
+
+        // Cache the validated key
+        apiKeyCache.set(keyHash, {
+          user,
+          expiresAt: Date.now() + API_KEY_CACHE_TTL,
         })
+
+        c.set('user', user)
         return next()
       }
     }
 
-    // API key validation failed
+    // API key validation failed - remove from cache if present
+    apiKeyCache.delete(keyHash)
     return c.json({ error: 'Invalid API key' }, 401)
   }
 
