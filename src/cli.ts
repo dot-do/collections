@@ -134,7 +134,13 @@ async function main() {
           console.error('Usage: collections.do put <namespace> <collection> <id> <json>')
           process.exit(1)
         }
-        const doc = JSON.parse(json)
+        let doc: Record<string, unknown>
+        try {
+          doc = JSON.parse(json)
+        } catch {
+          console.error('Error: Invalid JSON. Please provide valid JSON for the document.')
+          process.exit(1)
+        }
         await client.namespace(namespace).collection(collection).put(id, doc)
         console.log('Document saved')
         break
@@ -162,7 +168,15 @@ async function main() {
           console.error('Usage: collections.do query <namespace> <collection> [filter]')
           process.exit(1)
         }
-        const filter = filterJson ? JSON.parse(filterJson) : undefined
+        let filter: Record<string, unknown> | undefined
+        if (filterJson) {
+          try {
+            filter = JSON.parse(filterJson)
+          } catch {
+            console.error('Error: Invalid JSON filter. Please provide valid JSON.')
+            process.exit(1)
+          }
+        }
         const docs = await client.namespace(namespace).collection(collection).find(filter)
         console.log(JSON.stringify(docs, null, 2))
         break

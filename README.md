@@ -204,14 +204,11 @@ if (isFilterOperator(value)) {
 ### Utility Functions
 
 ```typescript
-import { validateFieldName, escapeSql } from '@dotdo/collections'
+import { validateFieldName } from '@dotdo/collections'
 
 // Validate field names (throws on invalid characters)
 validateFieldName('user.name')  // OK
 validateFieldName('invalid-field!')  // Throws!
-
-// Escape special characters in values
-escapeSql("O'Brien")  // "O''Brien"
 ```
 
 ## Security
@@ -219,8 +216,7 @@ escapeSql("O'Brien")  // "O''Brien"
 The library includes protection for safe database operations:
 
 - Field names are validated against `/^[\w.]+$/` pattern (alphanumeric, underscore, dot only)
-- All values are passed as parameterized queries
-- The `escapeSql` function provides additional escaping for string values
+- All values are passed as parameterized queries (escaping is handled automatically)
 
 ## License
 

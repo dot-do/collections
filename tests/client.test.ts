@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { Collections, type CollectionsConfig } from '../src/client'
+import { Collections, CollectionsError, type CollectionsConfig } from '../src/client'
 
 // ============================================================================
 // Mock Fetch Setup
@@ -411,6 +411,43 @@ describe('Error Handling', () => {
     const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
 
     await expect(collections.me()).rejects.toThrow('Authentication required')
+  })
+
+  it('should throw CollectionsError with status code preserved', async () => {
+    const responses = new Map([['ns.collections.do/users', { status: 403, body: { error: 'Forbidden' } }]])
+    const { mockFetch } = createMockFetch(responses)
+
+    const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
+    const users = collections.namespace('ns').collection<User>('users')
+
+    try {
+      await users.list()
+      expect.fail('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(CollectionsError)
+      expect((error as CollectionsError).status).toBe(403)
+      expect((error as CollectionsError).message).toBe('Forbidden')
+      expect((error as CollectionsError).name).toBe('CollectionsError')
+    }
+  })
+
+  it('should include error details in CollectionsError', async () => {
+    const responses = new Map([
+      ['ns.collections.do/users', { status: 422, body: { error: 'Validation failed', details: { field: 'name' } } }],
+    ])
+    const { mockFetch } = createMockFetch(responses)
+
+    const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
+    const users = collections.namespace('ns').collection<User>('users')
+
+    try {
+      await users.list()
+      expect.fail('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(CollectionsError)
+      expect((error as CollectionsError).status).toBe(422)
+      expect((error as CollectionsError).details).toEqual({ error: 'Validation failed', details: { field: 'name' } })
+    }
   })
 })
 

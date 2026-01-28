@@ -21,8 +21,9 @@ import {
   isNinOperator,
   isExistsOperator,
   isRegexOperator,
+  isContainsOperator,
 } from './types'
-import { validateQueryOptions } from './validation'
+import { validateQueryOptions, validateDocumentId } from './validation'
 import { validateRegexPattern } from './filter'
 
 // ============================================================================
@@ -99,6 +100,10 @@ function evaluateFilter<T extends Record<string, unknown>>(doc: T, filter: Filte
           }
           return false
         }
+      } else if (isContainsOperator(value)) {
+        // $contains: check if string contains substring (case-sensitive)
+        if (typeof docValue !== 'string') return false
+        if (!docValue.includes(value.$contains)) return false
       } else {
         // Plain object - exact match
         if (JSON.stringify(docValue) !== JSON.stringify(value)) return false
@@ -153,6 +158,7 @@ export class MemoryCollection<T extends Record<string, unknown> = Record<string,
   }
 
   put(id: string, doc: T): void {
+    validateDocumentId(id)
     const now = Date.now()
     const existing = this.data.get(id)
     this.data.set(id, {

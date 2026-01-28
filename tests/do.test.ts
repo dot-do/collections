@@ -160,6 +160,9 @@ class SqlCursor<T> {
 import { createCollection, initCollectionsSchema } from '@dotdo/collections'
 import type { SyncCollection } from '@dotdo/collections/types'
 
+// Maximum request body size (1MB) - must match src/do.ts
+const MAX_BODY_SIZE = 1024 * 1024
+
 /**
  * Test version of CollectionsDO that can be run outside Cloudflare Workers
  */
@@ -242,7 +245,7 @@ class TestCollectionsDO {
 
   /** Count documents */
   countDocs(collection: string, filter?: Record<string, unknown>): number {
-    return filter ? this.getCollection(collection).find(filter).length : this.getCollection(collection).count()
+    return this.getCollection(collection).count(filter)
   }
 
   /** Clear a collection */
@@ -274,9 +277,13 @@ class TestCollectionsDO {
 
   /**
    * Parse JSON body from request with error handling
-   * Returns parsed body or a 400 error Response for invalid JSON
+   * Returns parsed body, 413 for too large, or 400 for invalid JSON
    */
   private async parseJsonBody<T>(request: Request): Promise<T | Response> {
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10)
+    if (contentLength > MAX_BODY_SIZE) {
+      return Response.json({ error: 'Request body too large' }, { status: 413 })
+    }
     try {
       return await request.json() as T
     } catch {
@@ -1178,6 +1185,44 @@ describe('Collection isolation', () => {
 })
 
 // ============================================================================
+// countDocs tests
+// ============================================================================
+
+describe('countDocs', () => {
+  beforeEach(() => {
+    doInstance.putDoc('products', 'p1', { id: 'p1', name: 'Laptop', price: 999, category: 'electronics', inStock: true })
+    doInstance.putDoc('products', 'p2', { id: 'p2', name: 'Phone', price: 599, category: 'electronics', inStock: true })
+    doInstance.putDoc('products', 'p3', { id: 'p3', name: 'Chair', price: 149, category: 'furniture', inStock: false })
+    doInstance.putDoc('products', 'p4', { id: 'p4', name: 'Desk', price: 299, category: 'furniture', inStock: true })
+  })
+
+  it('should count all documents without filter', () => {
+    const count = doInstance.countDocs('products')
+    expect(count).toBe(4)
+  })
+
+  it('should count documents with filter', () => {
+    const count = doInstance.countDocs('products', { category: 'electronics' })
+    expect(count).toBe(2)
+  })
+
+  it('should count documents with complex filter', () => {
+    const count = doInstance.countDocs('products', { inStock: true })
+    expect(count).toBe(3)
+  })
+
+  it('should return 0 for non-matching filter', () => {
+    const count = doInstance.countDocs('products', { category: 'appliances' })
+    expect(count).toBe(0)
+  })
+
+  it('should return 0 for empty collection', () => {
+    const count = doInstance.countDocs('nonexistent')
+    expect(count).toBe(0)
+  })
+})
+
+// ============================================================================
 // Invalid JSON body error handling tests
 // ============================================================================
 
@@ -1194,5 +1239,885 @@ describe('error handling', () => {
     const request = createRequest('POST', '/users/query', 'not valid json')
     const response = await doInstance.fetch(request)
     expect(response.status).toBe(400)
+  })
+})
+
+// ============================================================================
+// Request body size limit tests
+// ============================================================================
+
+describe('request body size limit', () => {
+  const MAX_BODY_SIZE = 1024 * 1024 // 1MB
+
+  it('should return 413 for requests with Content-Length > MAX_BODY_SIZE', async () => {
+    const request = new Request(`${BASE_URL}/users/u1`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(MAX_BODY_SIZE + 1),
+        'X-Namespace': 'test',
+        'X-Base-Url': BASE_URL,
+      },
+      body: JSON.stringify({ name: 'Test' }),
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(413)
+    const body = await response.json() as any
+    expect(body.error).toBe('Request body too large')
+  })
+
+  it('should accept requests within the size limit', async () => {
+    const request = new Request(`${BASE_URL}/users/u1`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(100),
+        'X-Namespace': 'test',
+        'X-Base-Url': BASE_URL,
+      },
+      body: JSON.stringify({ name: 'Test' }),
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(201)
+    const body = await response.json() as any
+    expect(body.name).toBe('Test')
+  })
+
+  it('should accept requests at exactly MAX_BODY_SIZE', async () => {
+    const request = new Request(`${BASE_URL}/users/u1`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(MAX_BODY_SIZE),
+        'X-Namespace': 'test',
+        'X-Base-Url': BASE_URL,
+      },
+      body: JSON.stringify({ name: 'Test' }),
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(201)
+  })
+
+  it('should return 413 for POST /query with Content-Length > MAX_BODY_SIZE', async () => {
+    const request = new Request(`${BASE_URL}/products/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(MAX_BODY_SIZE + 1000),
+        'X-Namespace': 'test',
+        'X-Base-Url': BASE_URL,
+      },
+      body: JSON.stringify({ filter: {} }),
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(413)
+    const body = await response.json() as any
+    expect(body.error).toBe('Request body too large')
+  })
+})
+
+// ============================================================================
+// API Key Cache Size Limit Tests
+// ============================================================================
+
+import { apiKeyCache, MAX_CACHE_SIZE, setApiKeyCacheEntry, hashApiKey } from '../src/cache'
+
+describe('API Key Cache Size Limit', () => {
+  beforeEach(() => {
+    // Clear the cache before each test
+    apiKeyCache.clear()
+  })
+
+  it('should not exceed MAX_CACHE_SIZE', async () => {
+    // Add MAX_CACHE_SIZE + 100 entries
+    for (let i = 0; i < MAX_CACHE_SIZE + 100; i++) {
+      const keyHash = await hashApiKey(`sk_test_key_${i}`)
+      setApiKeyCacheEntry(keyHash, {
+        user: { id: `user-${i}`, name: `User ${i}` },
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      })
+    }
+
+    // Cache size should not exceed MAX_CACHE_SIZE
+    expect(apiKeyCache.size).toBeLessThanOrEqual(MAX_CACHE_SIZE)
+  })
+
+  it('should evict oldest entries when limit reached', async () => {
+    // First, add some entries to fill the cache
+    const firstKeyHash = await hashApiKey('sk_first_key')
+    setApiKeyCacheEntry(firstKeyHash, {
+      user: { id: 'first-user', name: 'First User' },
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    })
+
+    // Add more entries to approach the limit
+    for (let i = 0; i < MAX_CACHE_SIZE; i++) {
+      const keyHash = await hashApiKey(`sk_test_key_${i}`)
+      setApiKeyCacheEntry(keyHash, {
+        user: { id: `user-${i}`, name: `User ${i}` },
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      })
+    }
+
+    // The first entry should have been evicted (oldest by insertion order)
+    expect(apiKeyCache.has(firstKeyHash)).toBe(false)
+    expect(apiKeyCache.size).toBeLessThanOrEqual(MAX_CACHE_SIZE)
+  })
+})
+
+// ============================================================================
+// Auth Middleware Tests
+// ============================================================================
+
+/**
+ * Auth Middleware Test Suite
+ *
+ * Tests the authentication middleware in src/do.ts (lines 395-630).
+ * This is security-critical code that handles:
+ * - API key validation (Bearer sk_...)
+ * - JWT token verification (Bearer <jwt>)
+ * - Cookie-based authentication
+ * - Silent token refresh
+ */
+describe('Auth Middleware', () => {
+  // Mock AUTH and OAUTH service bindings
+  let mockAuthService: {
+    fetch: ReturnType<typeof vi.fn>
+  }
+  let mockOAuthService: {
+    fetch: ReturnType<typeof vi.fn>
+  }
+
+  // Create a minimal test Hono app with the auth middleware
+  // This mimics the middleware from src/do.ts but allows us to inject mocks
+  const { Hono } = require('hono')
+
+  interface AuthUser {
+    id: string
+    email?: string
+    name?: string
+    image?: string
+    org?: string
+    roles?: string[]
+    permissions?: string[]
+  }
+
+  // Test environment type
+  interface TestEnv {
+    AUTH: { fetch: (req: Request) => Promise<Response> }
+    OAUTH: { fetch: (req: Request) => Promise<Response> }
+  }
+
+  // API key cache for testing
+  let testApiKeyCache: Map<string, { user: AuthUser; expiresAt: number }>
+  const API_KEY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+  /**
+   * Hash an API key for cache lookup (local version for tests)
+   */
+  async function hashApiKeyLocal(apiKey: string): Promise<string> {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(apiKey)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  /**
+   * Helper to check if a token looks like a valid JWT
+   */
+  function isValidJwtFormat(token: string | null): boolean {
+    if (!token) return false
+    const parts = token.split('.')
+    return parts.length === 3 && parts.every(p => p.length > 0)
+  }
+
+  /**
+   * Helper to extract cookie value
+   */
+  function getCookie(cookies: string | null | undefined, name: string): string | null {
+    if (!cookies) return null
+    const match = cookies.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))
+    return match ? match[1]! : null
+  }
+
+  /**
+   * Get cookie domain from host
+   */
+  function getCookieDomain(host: string): string | undefined {
+    const hostname = host.split(':')[0] || ''
+    if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return undefined
+    const parts = hostname.split('.')
+    return parts.length >= 2 ? '.' + parts.slice(-2).join('.') : undefined
+  }
+
+  /**
+   * Create a test app with auth middleware
+   * This replicates the auth middleware logic from src/do.ts for isolated testing
+   */
+  function createAuthTestApp() {
+    const app = new Hono<{ Bindings: TestEnv; Variables: { user: AuthUser | null; newCookies?: string[] } }>()
+
+    // Auth middleware - mirrors src/do.ts lines 395-619
+    app.use('/*', async (c: any, next: () => Promise<void>) => {
+      const path = c.req.path
+
+      // Skip auth for auth/OAuth/MCP routes
+      const publicPaths = ['/login', '/logout', '/callback', '/authorize', '/token', '/introspect', '/revoke', '/register']
+      const wellKnownPaths = ['/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource', '/.well-known/jwks.json', '/.well-known/openid-configuration']
+      if (publicPaths.includes(path) || wellKnownPaths.includes(path) || path.startsWith('/mcp')) {
+        return next()
+      }
+
+      // Check for API key in Authorization header (Bearer token starting with sk_)
+      const authHeader = c.req.header('Authorization')
+      if (authHeader?.startsWith('Bearer sk_')) {
+        const apiKey = authHeader.slice(7) // Remove 'Bearer '
+
+        // Hash the API key for cache lookup
+        const keyHash = await hashApiKeyLocal(apiKey)
+
+        // Check cache first
+        const cached = testApiKeyCache.get(keyHash)
+        if (cached && cached.expiresAt > Date.now()) {
+          // Cache hit - use cached user
+          c.set('user', cached.user)
+          return next()
+        }
+
+        // Cache miss - validate via oauth.do
+        const validateResponse = await c.env.OAUTH.fetch(new Request('https://oauth.do/validate-api-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: apiKey }),
+        }))
+
+        if (validateResponse.ok) {
+          const validation = await validateResponse.json() as {
+            valid: boolean
+            id?: string
+            name?: string
+            organization_id?: string
+            permissions?: string[]
+            error?: string
+          }
+
+          if (validation.valid) {
+            // API key is valid - build user object
+            const user: AuthUser = {
+              id: validation.id || `api:${apiKey.slice(0, 16)}`,
+              name: validation.name || 'API Key User',
+              roles: ['api'],
+              permissions: validation.permissions || [],
+              ...(validation.organization_id && { org: validation.organization_id }),
+            }
+
+            // Cache the validated key
+            testApiKeyCache.set(keyHash, {
+              user,
+              expiresAt: Date.now() + API_KEY_CACHE_TTL,
+            })
+
+            c.set('user', user)
+            return next()
+          }
+        }
+
+        // API key validation failed - remove from cache if present
+        testApiKeyCache.delete(keyHash)
+        return c.json({ error: 'Invalid API key' }, 401)
+      }
+
+      // Check for JWT in Authorization header (Bearer token that's NOT an API key)
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer sk_')) {
+        const token = authHeader.slice(7) // Remove 'Bearer '
+
+        // Validate JWT looks correct
+        if (isValidJwtFormat(token)) {
+          // Verify JWT via AUTH service (lightweight, handles JWKS caching)
+          const response = await c.env.AUTH.fetch(new Request('https://auth/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              request: {
+                url: c.req.url,
+                headers: { 'Authorization': authHeader },
+              },
+            }),
+          }))
+
+          if (response.ok) {
+            const { user } = await response.json() as { user: AuthUser | null }
+
+            if (user) {
+              c.set('user', user)
+              return next()
+            }
+          }
+        }
+
+        // JWT validation failed
+        return c.json({ error: 'Invalid token' }, 401)
+      }
+
+      // Check for invalid auth cookie and clear it
+      const cookies = c.req.header('Cookie')
+      const authCookie = getCookie(cookies, 'auth')
+      if (authCookie && !isValidJwtFormat(authCookie)) {
+        // Invalid cookie - clear it
+        const domain = getCookieDomain(c.req.header('host') || '')
+        const cookieBase = ['HttpOnly', 'Secure', 'SameSite=Lax', 'Max-Age=0', 'Path=/']
+        if (domain) cookieBase.push(`Domain=${domain}`)
+
+        const accept = c.req.header('Accept') || ''
+        if (accept.includes('text/html')) {
+          const headers = new Headers({ 'Location': `/login?returnTo=${encodeURIComponent(c.req.url)}` })
+          headers.append('Set-Cookie', ['auth=', ...cookieBase].join('; '))
+          headers.append('Set-Cookie', ['refresh=', ...cookieBase].join('; '))
+          return new Response(null, { status: 302, headers })
+        }
+        // For API requests, just clear cookie and return 401
+        const headers = new Headers({ 'Content-Type': 'application/json' })
+        headers.append('Set-Cookie', ['auth=', ...cookieBase].join('; '))
+        headers.append('Set-Cookie', ['refresh=', ...cookieBase].join('; '))
+        return new Response(JSON.stringify({ error: 'Invalid token, please re-authenticate' }), { status: 401, headers })
+      }
+
+      // Call AUTH service to verify JWT (from cookie)
+      const response = await c.env.AUTH.fetch(new Request('https://auth/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request: {
+            url: c.req.url,
+            headers: Object.fromEntries(c.req.raw.headers.entries()),
+          },
+        }),
+      }))
+
+      const { user } = await response.json() as { user: AuthUser | null }
+
+      if (user) {
+        c.set('user', user)
+        return next()
+      }
+
+      // Not authenticated
+      const accept = c.req.header('Accept') || ''
+      if (accept.includes('text/html')) {
+        return c.redirect(`/login?returnTo=${encodeURIComponent(c.req.url)}`)
+      }
+      return c.json({ error: 'Authentication required' }, 401)
+    })
+
+    // Protected test route
+    app.get('/protected', (c: any) => {
+      const user = c.get('user')
+      return c.json({ user, message: 'Access granted' })
+    })
+
+    // Public routes (should skip auth)
+    app.get('/login', (c: any) => c.json({ message: 'Login page' }))
+    app.get('/mcp/test', (c: any) => c.json({ message: 'MCP route' }))
+    app.get('/.well-known/oauth-authorization-server', (c: any) => c.json({ message: 'OAuth metadata' }))
+
+    return app
+  }
+
+  beforeEach(() => {
+    // Reset mocks before each test
+    mockAuthService = {
+      fetch: vi.fn(),
+    }
+    mockOAuthService = {
+      fetch: vi.fn(),
+    }
+    // Reset API key cache
+    testApiKeyCache = new Map()
+  })
+
+  /**
+   * Create a request with auth and make it against the test app
+   */
+  async function makeAuthRequest(
+    path: string,
+    options: {
+      authorization?: string
+      cookie?: string
+      accept?: string
+    } = {}
+  ): Promise<Response> {
+    const app = createAuthTestApp()
+    const headers = new Headers()
+
+    if (options.authorization) {
+      headers.set('Authorization', options.authorization)
+    }
+    if (options.cookie) {
+      headers.set('Cookie', options.cookie)
+    }
+    if (options.accept) {
+      headers.set('Accept', options.accept)
+    }
+
+    const request = new Request(`https://test.collections.do${path}`, {
+      method: 'GET',
+      headers,
+    })
+
+    return app.fetch(request, {
+      AUTH: mockAuthService,
+      OAUTH: mockOAuthService,
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // Public Routes (should skip auth)
+  // -------------------------------------------------------------------------
+
+  describe('public routes', () => {
+    it('should allow access to /login without auth', async () => {
+      const response = await makeAuthRequest('/login')
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.message).toBe('Login page')
+    })
+
+    it('should allow access to MCP routes without auth', async () => {
+      const response = await makeAuthRequest('/mcp/test')
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.message).toBe('MCP route')
+    })
+
+    it('should allow access to .well-known routes without auth', async () => {
+      const response = await makeAuthRequest('/.well-known/oauth-authorization-server')
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.message).toBe('OAuth metadata')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // API Key Authentication
+  // -------------------------------------------------------------------------
+
+  describe('API key authentication', () => {
+    it('should authenticate with valid API key', async () => {
+      // Mock OAuth service to return valid API key
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({
+          valid: true,
+          id: 'user_123',
+          name: 'Test User',
+          organization_id: 'org_456',
+          permissions: ['read', 'write'],
+        })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_test_valid_api_key_here',
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.user).toEqual({
+        id: 'user_123',
+        name: 'Test User',
+        roles: ['api'],
+        permissions: ['read', 'write'],
+        org: 'org_456',
+      })
+    })
+
+    it('should reject invalid API key', async () => {
+      // Mock OAuth service to return invalid
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({ valid: false, error: 'Invalid API key' })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_invalid_key',
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid API key')
+    })
+
+    it('should cache valid API key and reuse on subsequent requests', async () => {
+      // First request - will hit OAuth service
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({
+          valid: true,
+          id: 'cached_user',
+          name: 'Cached User',
+        })
+      )
+
+      // First request
+      const response1 = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_cache_test_key',
+      })
+      expect(response1.status).toBe(200)
+      expect(mockOAuthService.fetch).toHaveBeenCalledTimes(1)
+
+      // Second request - should use cache
+      const response2 = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_cache_test_key',
+      })
+      expect(response2.status).toBe(200)
+      // OAuth service should NOT be called again (cache hit)
+      expect(mockOAuthService.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not use expired cache entries', async () => {
+      // Manually add an expired cache entry
+      const keyHash = await hashApiKeyLocal('sk_expired_key')
+      testApiKeyCache.set(keyHash, {
+        user: { id: 'old_user', name: 'Old User', roles: ['api'], permissions: [] },
+        expiresAt: Date.now() - 1000, // Already expired
+      })
+
+      // Mock OAuth service for fresh validation
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({
+          valid: true,
+          id: 'new_user',
+          name: 'New User',
+        })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_expired_key',
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      // Should get the new user from fresh validation, not cached
+      expect(body.user.id).toBe('new_user')
+      expect(mockOAuthService.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('should handle OAuth service errors gracefully', async () => {
+      // Mock OAuth service to fail
+      mockOAuthService.fetch.mockResolvedValue(
+        new Response('Internal Server Error', { status: 500 })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_service_error_key',
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid API key')
+    })
+
+    it('should use default values when API key response is minimal', async () => {
+      // Mock OAuth service to return minimal valid response
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({ valid: true })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_minimal_response_key',
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.user.name).toBe('API Key User')
+      expect(body.user.roles).toEqual(['api'])
+      expect(body.user.permissions).toEqual([])
+      expect(body.user.id).toMatch(/^api:sk_minimal_resp/)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // JWT Token Authentication
+  // -------------------------------------------------------------------------
+
+  describe('JWT token authentication', () => {
+    // Valid JWT format: three base64url-encoded parts separated by dots
+    const validJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+
+    it('should authenticate with valid JWT token', async () => {
+      // Mock AUTH service to return valid user
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({
+          user: {
+            id: 'jwt_user_123',
+            name: 'JWT User',
+            email: 'jwt@test.com',
+            roles: ['user'],
+          },
+        })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: `Bearer ${validJwt}`,
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.user.id).toBe('jwt_user_123')
+      expect(body.user.name).toBe('JWT User')
+    })
+
+    it('should reject invalid JWT format', async () => {
+      // Token with only 2 parts (invalid format)
+      const invalidJwt = 'invalid.token'
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: `Bearer ${invalidJwt}`,
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid token')
+      // AUTH service should NOT be called for invalid format
+      expect(mockAuthService.fetch).not.toHaveBeenCalled()
+    })
+
+    it('should reject JWT when AUTH service returns null user', async () => {
+      // Mock AUTH service to return null user (invalid token)
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: `Bearer ${validJwt}`,
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid token')
+    })
+
+    it('should reject JWT when AUTH service returns error', async () => {
+      // Mock AUTH service to fail
+      mockAuthService.fetch.mockResolvedValue(
+        new Response('Unauthorized', { status: 401 })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: `Bearer ${validJwt}`,
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid token')
+    })
+
+    it('should send correct request to AUTH service', async () => {
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: { id: 'test', name: 'Test' } })
+      )
+
+      await makeAuthRequest('/protected', {
+        authorization: `Bearer ${validJwt}`,
+      })
+
+      expect(mockAuthService.fetch).toHaveBeenCalledTimes(1)
+      const [request] = mockAuthService.fetch.mock.calls[0] as [Request]
+      expect(request.url).toBe('https://auth/user')
+      expect(request.method).toBe('POST')
+
+      const body = await request.json() as any
+      expect(body.request.headers.Authorization).toBe(`Bearer ${validJwt}`)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Cookie-based Authentication
+  // -------------------------------------------------------------------------
+
+  describe('cookie-based authentication', () => {
+    const validJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+
+    it('should authenticate with valid JWT in cookie', async () => {
+      // Mock AUTH service to return valid user
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({
+          user: {
+            id: 'cookie_user',
+            name: 'Cookie User',
+          },
+        })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        cookie: `auth=${validJwt}`,
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.user.id).toBe('cookie_user')
+    })
+
+    it('should clear invalid auth cookie and return 401 for API requests', async () => {
+      const response = await makeAuthRequest('/protected', {
+        cookie: 'auth=invalid_not_jwt_format',
+        accept: 'application/json',
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid token, please re-authenticate')
+
+      // Check that Set-Cookie headers are present to clear cookies
+      const setCookies = response.headers.getSetCookie()
+      expect(setCookies.length).toBeGreaterThan(0)
+      expect(setCookies.some(c => c.startsWith('auth=;') || c.includes('Max-Age=0'))).toBe(true)
+    })
+
+    it('should redirect to login for invalid auth cookie on HTML requests', async () => {
+      const response = await makeAuthRequest('/protected', {
+        cookie: 'auth=invalid_not_jwt_format',
+        accept: 'text/html',
+      })
+
+      expect(response.status).toBe(302)
+      expect(response.headers.get('Location')).toContain('/login')
+      expect(response.headers.get('Location')).toContain('returnTo=')
+    })
+
+    it('should pass cookie to AUTH service for verification', async () => {
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: { id: 'test', name: 'Test' } })
+      )
+
+      await makeAuthRequest('/protected', {
+        cookie: `auth=${validJwt}`,
+      })
+
+      expect(mockAuthService.fetch).toHaveBeenCalledTimes(1)
+      const [request] = mockAuthService.fetch.mock.calls[0] as [Request]
+      const body = await request.json() as any
+      // Headers object may have lowercase keys from Object.fromEntries
+      const cookieHeader = body.request.headers.Cookie || body.request.headers.cookie
+      expect(cookieHeader).toBeDefined()
+      expect(cookieHeader).toContain(`auth=${validJwt}`)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Missing Authentication
+  // -------------------------------------------------------------------------
+
+  describe('missing authentication', () => {
+    it('should return 401 for API requests without auth', async () => {
+      // Mock AUTH service to return null user (no auth)
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        accept: 'application/json',
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Authentication required')
+    })
+
+    it('should redirect to login for HTML requests without auth', async () => {
+      // Mock AUTH service to return null user (no auth)
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        accept: 'text/html',
+      })
+
+      expect(response.status).toBe(302)
+      expect(response.headers.get('Location')).toContain('/login')
+      expect(response.headers.get('Location')).toContain('returnTo=')
+    })
+
+    it('should include returnTo URL in login redirect', async () => {
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected?foo=bar', {
+        accept: 'text/html',
+      })
+
+      expect(response.status).toBe(302)
+      const location = response.headers.get('Location')
+      expect(location).toContain('/login')
+      expect(location).toContain(encodeURIComponent('https://test.collections.do/protected?foo=bar'))
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Edge Cases
+  // -------------------------------------------------------------------------
+
+  describe('edge cases', () => {
+    it('should handle empty Authorization header', async () => {
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: '',
+      })
+
+      expect(response.status).toBe(401)
+    })
+
+    it('should handle Authorization header without Bearer prefix', async () => {
+      mockAuthService.fetch.mockResolvedValue(
+        Response.json({ user: null })
+      )
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Basic dXNlcjpwYXNz',
+      })
+
+      expect(response.status).toBe(401)
+    })
+
+    it('should handle JWT with empty parts', async () => {
+      // JWT with empty middle part
+      const emptyPartJwt = 'eyJhbGciOiJIUzI1NiJ9..signature'
+
+      const response = await makeAuthRequest('/protected', {
+        authorization: `Bearer ${emptyPartJwt}`,
+      })
+
+      expect(response.status).toBe(401)
+      const body = await response.json() as any
+      expect(body.error).toBe('Invalid token')
+    })
+
+    it('should prefer API key over JWT when both present (sk_ prefix)', async () => {
+      mockOAuthService.fetch.mockResolvedValue(
+        Response.json({
+          valid: true,
+          id: 'api_key_user',
+          name: 'API Key User',
+        })
+      )
+
+      // Authorization header with sk_ prefix should be treated as API key
+      const response = await makeAuthRequest('/protected', {
+        authorization: 'Bearer sk_test_api_key_here',
+      })
+
+      expect(response.status).toBe(200)
+      const body = await response.json() as any
+      expect(body.user.id).toBe('api_key_user')
+      // OAuth service should be called (for API key), not AUTH service
+      expect(mockOAuthService.fetch).toHaveBeenCalledTimes(1)
+      expect(mockAuthService.fetch).not.toHaveBeenCalled()
+    })
   })
 })

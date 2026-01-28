@@ -27,6 +27,49 @@ interface Task {
 // ============================================================================
 
 describe('MemoryCollection', () => {
+  describe('find() return value behavior', () => {
+    it('should NOT include id field in find() results', () => {
+      const collection = createMemoryCollection<Task>()
+
+      collection.put('task1', { title: 'Task 1', completed: false, priority: 1 })
+      collection.put('task2', { title: 'Task 2', completed: true, priority: 2 })
+
+      const results = collection.find({})
+
+      // Verify find() returns only document data, not the id
+      // The id is available via keys() method or get() with known ID
+      for (const result of results) {
+        expect(result).not.toHaveProperty('id')
+        expect(result).toHaveProperty('title')
+        expect(result).toHaveProperty('completed')
+        expect(result).toHaveProperty('priority')
+      }
+    })
+
+    it('should NOT include id field in list() results', () => {
+      const collection = createMemoryCollection<Task>()
+
+      collection.put('task1', { title: 'Task 1', completed: false, priority: 1 })
+
+      const results = collection.list()
+
+      expect(results.length).toBe(1)
+      expect(results[0]).not.toHaveProperty('id')
+      expect(results[0]).toEqual({ title: 'Task 1', completed: false, priority: 1 })
+    })
+
+    it('should NOT include id field in query() results', () => {
+      const collection = createMemoryCollection<Task>()
+
+      collection.put('task1', { title: 'Task 1', completed: false, priority: 1 })
+
+      const results = collection.query({ completed: false })
+
+      expect(results.length).toBe(1)
+      expect(results[0]).not.toHaveProperty('id')
+    })
+  })
+
   describe('Class instantiation', () => {
     it('should create an instance directly', () => {
       const collection = new MemoryCollection<Task>()
@@ -36,6 +79,22 @@ describe('MemoryCollection', () => {
     it('should create an instance via factory function', () => {
       const collection = createMemoryCollection<Task>()
       expect(collection).toBeDefined()
+    })
+  })
+
+  describe('Document ID validation', () => {
+    it('should throw error when put() is called with empty string ID', () => {
+      const collection = createMemoryCollection<Task>()
+      expect(() => {
+        collection.put('', { title: 'Test', completed: false, priority: 1 })
+      }).toThrow('Document ID must be a non-empty string')
+    })
+
+    it('should throw error when put() is called with non-string ID', () => {
+      const collection = createMemoryCollection<Task>()
+      expect(() => {
+        collection.put(123 as any, { title: 'Test', completed: false, priority: 1 })
+      }).toThrow('Document ID must be a non-empty string')
     })
   })
 

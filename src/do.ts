@@ -12,8 +12,11 @@ import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { cors } from 'hono/cors'
-import { createCollection, initCollectionsSchema } from '@dotdo/collections'
+import { createCollection, initCollectionsSchema, MAX_LIMIT } from '@dotdo/collections'
 import type { SyncCollection } from '@dotdo/collections/types'
+
+// Maximum request body size (1MB)
+const MAX_BODY_SIZE = 1024 * 1024
 
 /**
  * User from auth service
@@ -130,7 +133,7 @@ export class CollectionsDO extends DurableObject<Env> {
 
   /** Count documents */
   countDocs(collection: string, filter?: Record<string, unknown>): number {
-    return filter ? this.getCollection(collection).find(filter).length : this.getCollection(collection).count()
+    return this.getCollection(collection).count(filter)
   }
 
   /** Clear a collection */
@@ -142,6 +145,9 @@ export class CollectionsDO extends DurableObject<Env> {
   // HTTP fetch handler (for backwards compatibility / direct browser access)
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** Default pagination limit when not specified */
+  private static readonly DEFAULT_LIMIT = 100
+
   /**
    * Validate pagination query parameters from URL search params
    * Returns validated { limit, offset } or a 400 error Response
@@ -150,11 +156,11 @@ export class CollectionsDO extends DurableObject<Env> {
     const limitStr = url.searchParams.get('limit')
     const offsetStr = url.searchParams.get('offset')
 
-    const limit = limitStr ? parseInt(limitStr, 10) : 100
+    const limit = limitStr ? parseInt(limitStr, 10) : CollectionsDO.DEFAULT_LIMIT
     const offset = offsetStr ? parseInt(offsetStr, 10) : 0
 
-    if (isNaN(limit) || limit < 1 || limit > 10000) {
-      return Response.json({ error: 'limit must be a positive integer between 1 and 10000' }, { status: 400 })
+    if (isNaN(limit) || limit < 1 || limit > MAX_LIMIT) {
+      return Response.json({ error: `limit must be a positive integer between 1 and ${MAX_LIMIT}` }, { status: 400 })
     }
 
     if (isNaN(offset) || offset < 0) {
@@ -166,9 +172,13 @@ export class CollectionsDO extends DurableObject<Env> {
 
   /**
    * Parse JSON body from request with error handling
-   * Returns parsed body or a 400 error Response for invalid JSON
+   * Returns parsed body, 413 for too large, or 400 for invalid JSON
    */
   private async parseJsonBody<T>(request: Request): Promise<T | Response> {
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10)
+    if (contentLength > MAX_BODY_SIZE) {
+      return Response.json({ error: 'Request body too large' }, { status: 413 })
+    }
     try {
       return await request.json() as T
     } catch {
@@ -342,31 +352,16 @@ function getNamespaceFromHost(host: string): string | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// API Key Cache
+// API Key Cache - Import from separate module for testability
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface CachedApiKey {
-  user: AuthUser
-  expiresAt: number
-}
-
-// API key validation cache with automatic cleanup
-// Expired entries are cleaned up probabilistically (1% of requests)
-// to avoid memory leaks while minimizing overhead
-const apiKeyCache: Map<string, CachedApiKey> = new Map()
-const API_KEY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-
-/**
- * Hash an API key for cache lookup
- * Uses a simple but fast hash - security comes from HTTPS and short TTL
- */
-async function hashApiKey(apiKey: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(apiKey)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-}
+import {
+  apiKeyCache,
+  API_KEY_CACHE_TTL,
+  hashApiKey,
+  setApiKeyCacheEntry,
+  cleanupExpiredEntries,
+} from './cache'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Worker entry point
@@ -410,12 +405,7 @@ app.use('/*', async (c, next) => {
     // Clean up expired entries (do this probabilistically, not every request)
     if (Math.random() < 0.01) {
       // 1% of requests trigger cleanup
-      const now = Date.now()
-      for (const [key, value] of apiKeyCache.entries()) {
-        if (value.expiresAt <= now) {
-          apiKeyCache.delete(key)
-        }
-      }
+      cleanupExpiredEntries()
     }
 
     // Hash the API key for cache lookup
@@ -457,7 +447,7 @@ app.use('/*', async (c, next) => {
         }
 
         // Cache the validated key
-        apiKeyCache.set(keyHash, {
+        setApiKeyCacheEntry(keyHash, {
           user,
           expiresAt: Date.now() + API_KEY_CACHE_TTL,
         })
@@ -592,6 +582,8 @@ app.use('/*', async (c, next) => {
           const cookieBase = ['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/']
           if (domain) cookieBase.push(`Domain=${domain}`)
 
+          // Cookie max-age of 365 days is intentional per product decision
+          // to provide persistent sessions for improved user experience
           const newCookies = [
             [`auth=${tokens.access_token}`, `Max-Age=${365 * 24 * 60 * 60}`, ...cookieBase].join('; '),
           ]
@@ -826,6 +818,8 @@ app.get('/callback', async (c) => {
   const cookieBase = ['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/']
   if (domain) cookieBase.push(`Domain=${domain}`)
 
+  // Cookie max-age of 365 days is intentional per product decision
+  // to provide persistent sessions for improved user experience
   const cookies = [
     [`auth=${access_token}`, `Max-Age=${365 * 24 * 60 * 60}`, ...cookieBase].join('; '),
   ]

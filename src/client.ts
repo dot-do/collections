@@ -27,6 +27,20 @@
 
 import type { AsyncCollection, Filter, AsyncQueryOptions, BulkResult } from '@dotdo/collections/types'
 
+/**
+ * Custom error class that preserves HTTP status codes and error details
+ */
+export class CollectionsError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'CollectionsError'
+  }
+}
+
 export interface CollectionsConfig {
   /** Base URL of the collections.do service (e.g., https://collections.do) */
   baseUrl?: string
@@ -86,7 +100,11 @@ class RemoteCollection<T extends Record<string, unknown>> implements AsyncCollec
     })
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error((error as { error: string }).error || 'Request failed')
+      throw new CollectionsError(
+        (error as { error: string }).error || 'Request failed',
+        response.status,
+        error as Record<string, unknown>
+      )
     }
     return response.json() as Promise<R>
   }

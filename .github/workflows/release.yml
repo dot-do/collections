@@ -39,7 +39,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm test:all
 
       - name: Build
         run: pnpm build

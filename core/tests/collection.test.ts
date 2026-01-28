@@ -12,7 +12,6 @@ import {
   type Collection,
   type Filter,
   validateFieldName,
-  escapeSql,
   isEqOperator,
   isNeOperator,
   isGtOperator,
@@ -201,17 +200,6 @@ describe('Field Validation', () => {
       expect(() => validateFieldName('field-with-dash')).toThrow()
       expect(() => validateFieldName('field with space')).toThrow()
       expect(() => validateFieldName('')).toThrow()
-    })
-  })
-
-  describe('escapeSql', () => {
-    it('should escape single quotes', () => {
-      expect(escapeSql("O'Brien")).toBe("O''Brien")
-      expect(escapeSql("It's a test")).toBe("It''s a test")
-    })
-
-    it('should handle strings without quotes', () => {
-      expect(escapeSql('normal string')).toBe('normal string')
     })
   })
 })
@@ -1324,13 +1312,12 @@ describe('Edge Cases', () => {
       }
     })
 
-    it('should handle empty string ID', () => {
+    it('should throw error for empty string ID', () => {
       const users = createMemoryCollection<User>()
 
-      users.put('', { name: 'Empty ID', email: 'empty@test.com', age: 30, active: true })
-
-      expect(users.has('')).toBe(true)
-      expect(users.get('')?.name).toBe('Empty ID')
+      expect(() => {
+        users.put('', { name: 'Empty ID', email: 'empty@test.com', age: 30, active: true })
+      }).toThrow('Document ID must be a non-empty string')
     })
   })
 
@@ -1470,6 +1457,55 @@ describe('$regex ReDoS protection', () => {
 // ============================================================================
 // Error Cases Tests
 // ============================================================================
+
+describe('$contains LIKE pattern escaping', () => {
+  let collection: Collection<{ name: string; description: string }>
+
+  beforeEach(() => {
+    collection = createMemoryCollection<{ name: string; description: string }>()
+  })
+
+  it('should escape percent character in $contains pattern', () => {
+    collection.put('doc1', { name: 'Product 100% off', description: 'Sale item' })
+    collection.put('doc2', { name: 'Product 100', description: 'Regular item' })
+    collection.put('doc3', { name: 'Product 1000', description: 'Premium item' })
+
+    // Should only match documents containing literal "100%"
+    const results = collection.find({ name: { $contains: '100%' } })
+    expect(results.length).toBe(1)
+    expect(results[0].name).toBe('Product 100% off')
+  })
+
+  it('should escape underscore character in $contains pattern', () => {
+    collection.put('doc1', { name: 'test_value', description: 'With underscore' })
+    collection.put('doc2', { name: 'testXvalue', description: 'With X' })
+    collection.put('doc3', { name: 'test value', description: 'With space' })
+
+    // Should only match documents containing literal underscore
+    const results = collection.find({ name: { $contains: 'test_value' } })
+    expect(results.length).toBe(1)
+    expect(results[0].name).toBe('test_value')
+  })
+
+  it('should escape backslash character in $contains pattern', () => {
+    collection.put('doc1', { name: 'path\\to\\file', description: 'Windows path' })
+    collection.put('doc2', { name: 'path/to/file', description: 'Unix path' })
+
+    // Should only match documents containing literal backslash
+    const results = collection.find({ name: { $contains: '\\to\\' } })
+    expect(results.length).toBe(1)
+    expect(results[0].name).toBe('path\\to\\file')
+  })
+
+  it('should handle multiple special characters in $contains pattern', () => {
+    collection.put('doc1', { name: 'discount_100%_offer', description: 'Special' })
+    collection.put('doc2', { name: 'discountX100Yoffer', description: 'No special chars' })
+
+    const results = collection.find({ name: { $contains: '_100%_' } })
+    expect(results.length).toBe(1)
+    expect(results[0].name).toBe('discount_100%_offer')
+  })
+})
 
 describe('Error Cases', () => {
   describe('Invalid filter operators', () => {

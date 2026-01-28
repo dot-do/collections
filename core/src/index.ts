@@ -87,11 +87,12 @@ export {
   isNinOperator,
   isExistsOperator,
   isRegexOperator,
+  isContainsOperator,
   isFilterOperator,
 } from './types'
 
 // Filter utilities
-export { compileFilter, validateFieldName, escapeSql, toSqlValue, validateRegexPattern } from './filter'
+export { compileFilter, validateFieldName, toSqlValue, validateRegexPattern, MAX_REGEX_PATTERN_LENGTH } from './filter'
 
 // Validation utilities
 export {

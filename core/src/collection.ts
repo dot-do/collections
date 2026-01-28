@@ -195,7 +195,7 @@ export function createCollection<T extends Record<string, unknown> = Record<stri
       const results: T[] = []
       for (const row of rows) {
         try {
-          results.push({ id: row.id, ...JSON.parse(row.data) } as T)
+          results.push(JSON.parse(row.data))
         } catch (e) {
           console.warn(`Corrupted data for document "${row.id}" in collection "${collectionName}":`, e)
           // Skip corrupted documents

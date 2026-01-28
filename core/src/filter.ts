@@ -31,24 +31,15 @@ export function validateFieldName(field: string): string {
 }
 
 // ============================================================================
-// SQL Value Escaping
+// SQL Value Conversion
 // ============================================================================
 
 /**
- * Escape a string value for safe use in SQL
- * This is a defense-in-depth measure - parameterized queries should be the primary protection
+ * Convert a value to its SQL-safe representation for parameterized queries.
+ * Handles boolean conversion since SQLite JSON stores booleans as 1/0.
  *
- * @param value - The value to escape
- * @returns The escaped string
- */
-export function escapeSql(value: string): string {
-  // Replace single quotes with two single quotes (SQL standard escape)
-  return value.replace(/'/g, "''")
-}
-
-/**
- * Convert a value to its SQL-safe representation for parameterized queries
- * Handles boolean conversion since SQLite JSON stores booleans as 1/0
+ * Note: String escaping is handled automatically by parameterized queries,
+ * so no manual escaping is needed.
  */
 export function toSqlValue(value: unknown): unknown {
   if (typeof value === 'boolean') {
@@ -61,6 +52,9 @@ export function toSqlValue(value: unknown): unknown {
 // Regex Pattern Validation (ReDoS Protection)
 // ============================================================================
 
+/** Maximum allowed regex pattern length to prevent ReDoS attacks */
+export const MAX_REGEX_PATTERN_LENGTH = 1000
+
 /**
  * Validate a regex pattern to prevent ReDoS attacks.
  *
@@ -68,14 +62,21 @@ export function toSqlValue(value: unknown): unknown {
  * @throws Error if pattern is too long or contains dangerous nested quantifiers
  */
 export function validateRegexPattern(pattern: string): void {
-  if (pattern.length > 1000) {
-    throw new Error('Regex pattern too long (max 1000 characters)')
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+    throw new Error(`Regex pattern too long (max ${MAX_REGEX_PATTERN_LENGTH} characters)`)
   }
   // Detect dangerous nested quantifiers like (a+)+, (a*)+, (a+)*, etc.
   const dangerousPattern = /(\([^)]*[+*][^)]*\))[+*]|\([^)]*\([^)]*[+*]/
   if (dangerousPattern.test(pattern)) {
     throw new Error('Regex pattern contains dangerous nested quantifiers')
   }
+}
+
+/**
+ * Escape LIKE special characters (%, _, \) for safe use in SQL LIKE patterns
+ */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[%_\\]/g, '\\$&')
 }
 
 // ============================================================================
@@ -169,8 +170,9 @@ export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
         conditions.push(`json_extract(data, '$.${safeField}') REGEXP ?`)
       } else if ('$contains' in op) {
         // $contains: check if string contains substring or array contains value
-        params.push(`%${op['$contains']}%`)
-        conditions.push(`json_extract(data, '$.${safeField}') LIKE ?`)
+        const escaped = escapeLikePattern(String(op['$contains']))
+        params.push(`%${escaped}%`)
+        conditions.push(`json_extract(data, '$.${safeField}') LIKE ? ESCAPE '\\'`)
       } else {
         // Plain object value - exact match
         params.push(JSON.stringify(value))

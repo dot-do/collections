@@ -350,6 +350,20 @@ describe('SQLite-backed createCollection', () => {
       expect(users.find({ active: true }).length).toBe(1)
     })
 
+    it('should count documents with filter', () => {
+      const users = createCollection<User>(mockSql as unknown as SqlStorage, 'users')
+
+      users.put('u1', { name: 'Alice', email: 'a@test.com', age: 30, active: true })
+      users.put('u2', { name: 'Bob', email: 'b@test.com', age: 25, active: true })
+      users.put('u3', { name: 'Charlie', email: 'c@test.com', age: 35, active: false })
+
+      // count() with filter should use SQL COUNT(*) directly, not find().length
+      expect(users.count({ active: true })).toBe(2)
+      expect(users.count({ active: false })).toBe(1)
+      expect(users.count({ age: { $gt: 28 } })).toBe(2)
+      expect(users.count({ name: 'NonExistent' })).toBe(0)
+    })
+
     it('should clear all documents', () => {
       const users = createCollection<User>(mockSql as unknown as SqlStorage, 'users')
 

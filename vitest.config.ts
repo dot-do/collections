@@ -11,5 +11,8 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/types.ts', 'src/cli.ts'],
     },
+    alias: {
+      'cloudflare:workers': '/Users/nathanclevenger/projects/collections/tests/__mocks__/cloudflare-workers.ts',
+    },
   },
 })

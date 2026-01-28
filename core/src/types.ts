@@ -324,6 +324,13 @@ export interface RegexOperator {
 }
 
 /**
+ * Contains operator (substring match)
+ */
+export interface ContainsOperator {
+  $contains: string
+}
+
+/**
  * MongoDB-style filter operators (union of all operator interfaces)
  */
 export type FilterOperatorObject =
@@ -337,6 +344,7 @@ export type FilterOperatorObject =
   | NinOperator
   | ExistsOperator
   | RegexOperator
+  | ContainsOperator
 
 // =============================================================================
 // Type Guards
@@ -413,6 +421,13 @@ export function isRegexOperator(value: unknown): value is RegexOperator {
 }
 
 /**
+ * Check if value is a ContainsOperator
+ */
+export function isContainsOperator(value: unknown): value is ContainsOperator {
+  return value !== null && typeof value === 'object' && '$contains' in value
+}
+
+/**
  * Check if value is any FilterOperator object
  */
 export function isFilterOperator(value: unknown): value is FilterOperatorObject {
@@ -426,6 +441,7 @@ export function isFilterOperator(value: unknown): value is FilterOperatorObject 
     isInOperator(value) ||
     isNinOperator(value) ||
     isExistsOperator(value) ||
-    isRegexOperator(value)
+    isRegexOperator(value) ||
+    isContainsOperator(value)
   )
 }
