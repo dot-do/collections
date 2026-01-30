@@ -5,18 +5,10 @@
  * to prevent unbounded memory growth.
  */
 
-/**
- * User from auth service
- */
-export interface AuthUser {
-  id: string
-  email?: string
-  name?: string
-  image?: string
-  org?: string
-  roles?: string[]
-  permissions?: string[]
-}
+import type { AuthUser } from './types'
+
+// Re-export AuthUser for backwards compatibility
+export type { AuthUser }
 
 export interface CachedApiKey {
   user: AuthUser

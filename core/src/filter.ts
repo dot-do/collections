@@ -83,30 +83,43 @@ function escapeLikePattern(value: string): string {
 // Filter Compiler
 // ============================================================================
 
+/** Maximum allowed filter nesting depth to prevent stack overflow */
+export const MAX_FILTER_DEPTH = 10
+
 /**
  * Compile a MongoDB-style filter to SQL WHERE clause
  *
  * @param filter - The filter object
  * @param params - Array to push parameter values into
+ * @param depth - Current recursion depth (optional, defaults to 0)
  * @returns SQL WHERE clause string
+ * @throws Error if filter nesting exceeds MAX_FILTER_DEPTH
  */
-export function compileFilter<T>(filter: Filter<T>, params: unknown[]): string {
+export function compileFilter<T>(filter: Filter<T>, params: unknown[], depth: number = 0): string {
+  // Check depth limit to prevent stack overflow from deeply nested queries
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new Error(
+      `Filter nesting depth exceeds maximum allowed (${MAX_FILTER_DEPTH}). ` +
+        'Simplify your query to reduce nesting of $and/$or/$not operators.'
+    )
+  }
+
   const conditions: string[] = []
 
   for (const [key, value] of Object.entries(filter)) {
     if (key === '$and' && Array.isArray(value)) {
-      const subConditions = value.map((f) => compileFilter(f, params))
+      const subConditions = value.map((f) => compileFilter(f, params, depth + 1))
       if (subConditions.length > 0) {
         conditions.push(`(${subConditions.join(' AND ')})`)
       }
     } else if (key === '$or' && Array.isArray(value)) {
-      const subConditions = value.map((f) => compileFilter(f, params))
+      const subConditions = value.map((f) => compileFilter(f, params, depth + 1))
       if (subConditions.length > 0) {
         conditions.push(`(${subConditions.join(' OR ')})`)
       }
     } else if (key === '$not' && value !== null && typeof value === 'object') {
       // $not operator: negate the nested filter
-      const subCondition = compileFilter(value as Filter<T>, params)
+      const subCondition = compileFilter(value as Filter<T>, params, depth + 1)
       if (subCondition !== '1=1') {
         conditions.push(`NOT (${subCondition})`)
       }

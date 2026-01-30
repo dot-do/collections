@@ -276,6 +276,30 @@ class TestCollectionsDO {
   }
 
   /**
+   * Validate pagination parameters from request body
+   * Returns validated { limit, offset } or a 400 error Response
+   */
+  private validateBodyPagination(limit?: unknown, offset?: unknown): { limit?: number; offset?: number } | Response {
+    const options: { limit?: number; offset?: number } = {}
+
+    if (limit !== undefined) {
+      if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 10000) {
+        return Response.json({ error: 'limit must be a positive integer between 1 and 10000' }, { status: 400 })
+      }
+      options.limit = limit
+    }
+
+    if (offset !== undefined) {
+      if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+        return Response.json({ error: 'offset must be a non-negative integer' }, { status: 400 })
+      }
+      options.offset = offset
+    }
+
+    return options
+  }
+
+  /**
    * Parse JSON body from request with error handling
    * Returns parsed body, 413 for too large, or 400 for invalid JSON
    */
@@ -372,17 +396,38 @@ class TestCollectionsDO {
       return Response.json({ deleted: true })
     }
 
+    // Route: PATCH /:collection/:id
+    if (docMatch && method === 'PATCH') {
+      const [, collection, id] = docMatch
+      const parsed = await this.parseJsonBody<Record<string, unknown>>(request)
+      if (parsed instanceof Response) return parsed
+      const patch = parsed
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        return Response.json({ error: 'Body must be a JSON object' }, { status: 400 })
+      }
+      // Fetch existing document
+      const existing = this.getDoc(collection!, id!)
+      if (!existing) return Response.json({ error: 'Not found' }, { status: 404 })
+      // Shallow merge: existing fields + patch fields
+      const merged = { ...existing, ...patch }
+      // Save the merged document
+      this.putDoc(collection!, id!, merged)
+      return Response.json({ $id: `${baseUrl}/${collection}/${id}`, id, ...merged })
+    }
+
     // Route: POST /:collection/query
     const queryMatch = path.match(/^\/([^/]+)\/query$/)
     if (queryMatch && method === 'POST') {
       const collection = queryMatch[1]!
-      const parsed = await this.parseJsonBody<{ filter?: Record<string, unknown>; limit?: number; offset?: number }>(request)
+      const parsed = await this.parseJsonBody<{ filter?: Record<string, unknown>; limit?: unknown; offset?: unknown }>(request)
       if (parsed instanceof Response) return parsed
       const body = parsed
-      const options: { limit?: number; offset?: number } = {}
-      if (body.limit !== undefined) options.limit = body.limit
-      if (body.offset !== undefined) options.offset = body.offset
-      const docs = this.findDocs(collection, body.filter, options)
+
+      // Validate body pagination parameters
+      const bodyPagination = this.validateBodyPagination(body.limit, body.offset)
+      if (bodyPagination instanceof Response) return bodyPagination
+
+      const docs = this.findDocs(collection, body.filter, bodyPagination)
       return Response.json({ collection, count: docs.length, docs })
     }
 
@@ -947,6 +992,92 @@ describe('POST /:collection/query - Query documents', () => {
 
     expect(response.status).toBe(400)
   })
+
+  it('should return 400 for negative limit in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: -1 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('limit')
+  })
+
+  it('should return 400 for negative offset in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, offset: -5 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('offset')
+  })
+
+  it('should return 400 for non-integer limit in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: 'abc' },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('limit')
+  })
+
+  it('should return 400 for non-integer offset in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, offset: 'xyz' },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('offset')
+  })
+
+  it('should return 400 for limit exceeding maximum in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: 99999 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('limit')
+  })
+
+  it('should return 400 for limit=0 in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: 0 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toContain('limit')
+  })
+
+  it('should accept valid limit and offset in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: 10, offset: 0 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    expect(body.collection).toBe('products')
+  })
+
+  it('should accept limit at maximum boundary in query body', async () => {
+    const request = createRequest('POST', '/products/query', {
+      body: { filter: {}, limit: 10000 },
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+  })
 })
 
 // ============================================================================
@@ -991,6 +1122,145 @@ describe('DELETE /:collection - Clear collection', () => {
 })
 
 // ============================================================================
+// PATCH /:collection/:id - Partial document update endpoint
+// ============================================================================
+
+describe('PATCH /:collection/:id - Partial document update', () => {
+  beforeEach(() => {
+    // Create an existing document to patch
+    doInstance.putDoc('users', 'u1', { id: 'u1', name: 'Alice', email: 'alice@test.com', age: 30, active: true })
+  })
+
+  it('should merge provided fields with existing document', async () => {
+    const patchData = { name: 'Updated Alice', age: 31 }
+    const request = createRequest('PATCH', '/users/u1', { body: patchData })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    expect(body.id).toBe('u1')
+    expect(body.name).toBe('Updated Alice')
+    expect(body.age).toBe(31)
+    // Original fields should be preserved
+    expect(body.email).toBe('alice@test.com')
+    expect(body.active).toBe(true)
+
+    // Verify the document is actually updated in storage
+    const doc = doInstance.getDoc('users', 'u1')
+    expect(doc?.name).toBe('Updated Alice')
+    expect(doc?.email).toBe('alice@test.com')
+  })
+
+  it('should return 404 if document does not exist', async () => {
+    const patchData = { name: 'Updated' }
+    const request = createRequest('PATCH', '/users/nonexistent', { body: patchData })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(404)
+    const body = await response.json() as any
+    expect(body.error).toBe('Not found')
+  })
+
+  it('should return 400 for invalid JSON', async () => {
+    const request = createRequest('PATCH', '/users/u1', 'invalid json {{{')
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toBe('Invalid JSON body')
+  })
+
+  it('should return 400 for array body', async () => {
+    const request = createRequest('PATCH', '/users/u1', { body: [1, 2, 3] })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toBe('Body must be a JSON object')
+  })
+
+  it('should return 400 for null body', async () => {
+    const request = createRequest('PATCH', '/users/u1', { body: null })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.error).toBe('Body must be a JSON object')
+  })
+
+  it('should include $id link in response', async () => {
+    const request = createRequest('PATCH', '/users/u1', { body: { name: 'Updated' } })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    expect(body.$id).toBe(`${BASE_URL}/users/u1`)
+  })
+
+  it('should handle adding new fields to existing document', async () => {
+    const patchData = { nickname: 'Ally', department: 'Engineering' }
+    const request = createRequest('PATCH', '/users/u1', { body: patchData })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    expect(body.nickname).toBe('Ally')
+    expect(body.department).toBe('Engineering')
+    // Original fields still present
+    expect(body.name).toBe('Alice')
+  })
+
+  it('should allow setting fields to null', async () => {
+    const patchData = { email: null }
+    const request = createRequest('PATCH', '/users/u1', { body: patchData })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    expect(body.email).toBeNull()
+    expect(body.name).toBe('Alice')
+  })
+
+  it('should perform shallow merge (not deep)', async () => {
+    // First set up a document with nested data
+    doInstance.putDoc('users', 'u2', {
+      id: 'u2',
+      name: 'Bob',
+      preferences: { theme: 'dark', notifications: true }
+    })
+
+    // Patch with new preferences object - should replace entire preferences, not deep merge
+    const patchData = { preferences: { theme: 'light' } }
+    const request = createRequest('PATCH', '/users/u2', { body: patchData })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as any
+    // Shallow merge means the entire preferences object is replaced
+    expect(body.preferences).toEqual({ theme: 'light' })
+    expect(body.name).toBe('Bob')
+  })
+
+  it('should return 413 for request body too large', async () => {
+    const request = new Request(`${BASE_URL}/users/u1`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(1024 * 1024 + 1),
+        'X-Namespace': 'test',
+        'X-Base-Url': BASE_URL,
+      },
+      body: JSON.stringify({ name: 'Test' }),
+    })
+    const response = await doInstance.fetch(request)
+
+    expect(response.status).toBe(413)
+    const body = await response.json() as any
+    expect(body.error).toBe('Request body too large')
+  })
+})
+
+// ============================================================================
 // Error handling tests
 // ============================================================================
 
@@ -1006,13 +1276,6 @@ describe('Error handling', () => {
 
   it('should return 404 for unsupported methods on root', async () => {
     const request = createRequest('POST', '/')
-    const response = await doInstance.fetch(request)
-
-    expect(response.status).toBe(404)
-  })
-
-  it('should return 404 for PATCH method (not supported)', async () => {
-    const request = createRequest('PATCH', '/users/u1')
     const response = await doInstance.fetch(request)
 
     expect(response.status).toBe(404)

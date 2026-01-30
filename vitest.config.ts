@@ -1,4 +1,8 @@
+import { resolve } from 'path'
+import { fileURLToPath } from 'url'
 import { defineConfig } from 'vitest/config'
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   test: {
@@ -12,7 +16,7 @@ export default defineConfig({
       exclude: ['src/**/*.test.ts', 'src/**/types.ts', 'src/cli.ts'],
     },
     alias: {
-      'cloudflare:workers': '/Users/nathanclevenger/projects/collections/tests/__mocks__/cloudflare-workers.ts',
+      'cloudflare:workers': resolve(__dirname, 'tests/__mocks__/cloudflare-workers.ts'),
     },
   },
 })

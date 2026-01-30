@@ -14,22 +14,10 @@ import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 import { createCollection, initCollectionsSchema, MAX_LIMIT } from '@dotdo/collections'
 import type { SyncCollection } from '@dotdo/collections/types'
+import type { AuthUser } from './types'
 
 // Maximum request body size (1MB)
 const MAX_BODY_SIZE = 1024 * 1024
-
-/**
- * User from auth service
- */
-interface AuthUser {
-  id: string
-  email?: string
-  name?: string
-  image?: string
-  org?: string
-  roles?: string[]
-  permissions?: string[]
-}
 
 export interface Env {
   COLLECTIONS: DurableObjectNamespace<CollectionsDO>
@@ -186,6 +174,30 @@ export class CollectionsDO extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Validate pagination parameters from request body
+   * Returns validated { limit, offset } or a 400 error Response
+   */
+  private validateBodyPagination(limit?: unknown, offset?: unknown): { limit?: number; offset?: number } | Response {
+    const options: { limit?: number; offset?: number } = {}
+
+    if (limit !== undefined) {
+      if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+        return Response.json({ error: `limit must be a positive integer between 1 and ${MAX_LIMIT}` }, { status: 400 })
+      }
+      options.limit = limit
+    }
+
+    if (offset !== undefined) {
+      if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+        return Response.json({ error: 'offset must be a non-negative integer' }, { status: 400 })
+      }
+      options.offset = offset
+    }
+
+    return options
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
@@ -264,17 +276,38 @@ export class CollectionsDO extends DurableObject<Env> {
       return Response.json({ deleted: true })
     }
 
+    // Route: PATCH /:collection/:id
+    if (docMatch && method === 'PATCH') {
+      const [, collection, id] = docMatch
+      const parsed = await this.parseJsonBody<Record<string, unknown>>(request)
+      if (parsed instanceof Response) return parsed
+      const patch = parsed
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        return Response.json({ error: 'Body must be a JSON object' }, { status: 400 })
+      }
+      // Fetch existing document
+      const existing = this.getDoc(collection!, id!)
+      if (!existing) return Response.json({ error: 'Not found' }, { status: 404 })
+      // Shallow merge: existing fields + patch fields
+      const merged = { ...existing, ...patch }
+      // Save the merged document
+      this.putDoc(collection!, id!, merged)
+      return Response.json({ $id: `${baseUrl}/${collection}/${id}`, id, ...merged })
+    }
+
     // Route: POST /:collection/query
     const queryMatch = path.match(/^\/([^/]+)\/query$/)
     if (queryMatch && method === 'POST') {
       const collection = queryMatch[1]!
-      const parsed = await this.parseJsonBody<{ filter?: Record<string, unknown>; limit?: number; offset?: number }>(request)
+      const parsed = await this.parseJsonBody<{ filter?: Record<string, unknown>; limit?: unknown; offset?: unknown }>(request)
       if (parsed instanceof Response) return parsed
       const body = parsed
-      const options: { limit?: number; offset?: number } = {}
-      if (body.limit !== undefined) options.limit = body.limit
-      if (body.offset !== undefined) options.offset = body.offset
-      const docs = this.findDocs(collection, body.filter, options)
+
+      // Validate body pagination parameters
+      const bodyPagination = this.validateBodyPagination(body.limit, body.offset)
+      if (bodyPagination instanceof Response) return bodyPagination
+
+      const docs = this.findDocs(collection, body.filter, bodyPagination)
       return Response.json({ collection, count: docs.length, docs })
     }
 
@@ -371,6 +404,9 @@ const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser | null; newCoo
 
 app.use('*', cors())
 
+// Health check endpoint - no authentication required
+app.get('/health', (c) => c.json({ status: 'ok' }))
+
 // Helper to extract cookie value
 function getCookie(cookies: string | null | undefined, name: string): string | null {
   if (!cookies) return null
@@ -390,8 +426,8 @@ function isValidJwtFormat(token: string | null): boolean {
 app.use('/*', async (c, next) => {
   const path = c.req.path
 
-  // Skip auth for auth/OAuth/MCP routes
-  const publicPaths = ['/login', '/logout', '/callback', '/authorize', '/token', '/introspect', '/revoke', '/register']
+  // Skip auth for auth/OAuth/MCP routes and health check
+  const publicPaths = ['/health', '/login', '/logout', '/callback', '/authorize', '/token', '/introspect', '/revoke', '/register']
   const wellKnownPaths = ['/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource', '/.well-known/jwks.json', '/.well-known/openid-configuration']
   if (publicPaths.includes(path) || wellKnownPaths.includes(path) || path.startsWith('/mcp')) {
     return next()

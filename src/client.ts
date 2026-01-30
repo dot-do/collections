@@ -116,8 +116,13 @@ class RemoteCollection<T extends Record<string, unknown>> implements AsyncCollec
       // Remove API metadata fields
       const { $id, id: _id, ...doc } = result
       return doc as T
-    } catch {
-      return null
+    } catch (error) {
+      // Only return null for 404 errors (document not found)
+      if (error instanceof CollectionsError && error.status === 404) {
+        return null
+      }
+      // Rethrow all other errors (500, 401, network errors, etc.)
+      throw error
     }
   }
 

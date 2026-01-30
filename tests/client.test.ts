@@ -162,6 +162,51 @@ describe('Response Parsing', () => {
 
       expect(user).toBeNull()
     })
+
+    it('should rethrow 500 errors as CollectionsError', async () => {
+      const responses = new Map([['ns.collections.do/users/u1', { status: 500, body: { error: 'Internal server error' } }]])
+      const { mockFetch } = createMockFetch(responses)
+
+      const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
+      const users = collections.namespace('ns').collection<User>('users')
+
+      try {
+        await users.get('u1')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(CollectionsError)
+        expect((error as CollectionsError).status).toBe(500)
+        expect((error as CollectionsError).message).toBe('Internal server error')
+      }
+    })
+
+    it('should rethrow 401 errors as CollectionsError', async () => {
+      const responses = new Map([['ns.collections.do/users/u1', { status: 401, body: { error: 'Unauthorized' } }]])
+      const { mockFetch } = createMockFetch(responses)
+
+      const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
+      const users = collections.namespace('ns').collection<User>('users')
+
+      try {
+        await users.get('u1')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(CollectionsError)
+        expect((error as CollectionsError).status).toBe(401)
+        expect((error as CollectionsError).message).toBe('Unauthorized')
+      }
+    })
+
+    it('should rethrow network errors', async () => {
+      const mockFetch = vi.fn(async () => {
+        throw new Error('Network error')
+      })
+
+      const collections = new Collections({ baseUrl: 'https://collections.do', fetch: mockFetch })
+      const users = collections.namespace('ns').collection<User>('users')
+
+      await expect(users.get('u1')).rejects.toThrow('Network error')
+    })
   })
 
   describe('list()', () => {

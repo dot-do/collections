@@ -4,6 +4,19 @@
  * Re-exports all types from @dotdo/collections for convenience.
  */
 
+/**
+ * User from auth service
+ */
+export interface AuthUser {
+  id: string
+  email?: string
+  name?: string
+  image?: string
+  org?: string
+  roles?: string[]
+  permissions?: string[]
+}
+
 export type {
   // Collection interfaces
   SyncCollection,
